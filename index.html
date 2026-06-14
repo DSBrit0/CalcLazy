@@ -1,0 +1,810 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>CalcLazy — Rebalanceamento Lazy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0c1116; --surface:#141b22; --surface-2:#1b242d; --surface-3:#222e39;
+  --line:#28333d; --line-soft:#1f2932;
+  --ink:#e8eef3; --muted:#8a99a6; --faint:#5c6b78;
+  --teal:#2dd4bf; --teal-dim:#1c6c63; --amber:#f0a04b; --amber-dim:#7a5223;
+  --danger:#e5675f; --warn:#f0c04b;
+  --radius:14px; --radius-sm:9px;
+  --mono:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans:"Space Grotesk", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1200px 600px at 80% -10%, #122029 0%, transparent 55%),
+    radial-gradient(900px 500px at -10% 110%, #11201d 0%, transparent 50%),
+    var(--bg);
+  color:var(--ink); font-family:var(--sans);
+  -webkit-font-smoothing:antialiased; line-height:1.45; min-height:100vh;
+}
+button{font-family:inherit; cursor:pointer}
+input{font-family:inherit}
+.num{font-family:var(--mono); font-variant-numeric:tabular-nums}
+.hide{display:none !important}
+
+/* ---------- Layout shells ---------- */
+.gate{min-height:100vh; display:grid; place-items:center; padding:24px}
+.gate-card{
+  width:min(440px,100%); background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius); padding:30px 28px; box-shadow:0 24px 60px -28px #000;
+}
+.brand{display:flex; align-items:center; gap:12px; margin-bottom:6px}
+.logo{
+  width:40px;height:40px;border-radius:11px;flex:none;
+  background:linear-gradient(150deg,var(--teal),#1c8f84); position:relative;
+  box-shadow:0 0 0 1px #2dd4bf33, 0 8px 22px -10px #2dd4bf66;
+}
+.logo::before,.logo::after{content:"";position:absolute;left:8px;right:8px;height:3px;border-radius:3px;background:#0c1116cc}
+.logo::before{top:14px;width:14px}
+.logo::after{top:22px;left:8px;right:8px}
+.brand h1{font-size:21px;letter-spacing:-.4px;margin:0;font-weight:700}
+.brand .sub{font-size:12px;color:var(--muted);letter-spacing:.3px}
+.gate-lead{color:var(--muted);font-size:13.5px;margin:14px 0 20px}
+label.fld{display:block;margin:0 0 14px}
+label.fld span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;letter-spacing:.2px}
+input.txt{
+  width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);
+  border-radius:var(--radius-sm);padding:11px 12px;font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s;
+}
+input.txt:focus{border-color:var(--teal);box-shadow:0 0 0 3px #2dd4bf22}
+.btn{
+  border:1px solid var(--line);background:var(--surface-2);color:var(--ink);
+  padding:10px 16px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;
+  transition:background .15s,border-color .15s,transform .05s;
+}
+.btn:hover{background:var(--surface-3)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:linear-gradient(150deg,var(--teal),#19a597);border-color:transparent;color:#06231f;font-weight:600}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:7px 11px;font-size:12.5px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.note{font-size:12px;color:var(--faint);margin-top:14px;line-height:1.5}
+.note b{color:var(--muted);font-weight:600}
+.gate-msg{font-size:13px;margin:12px 0 0;min-height:18px}
+.gate-msg.err{color:var(--danger)}
+.gate-msg.ok{color:var(--teal)}
+.tabs{display:flex;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:4px;margin-bottom:18px}
+.tabs button{flex:1;border:none;background:transparent;color:var(--muted);padding:8px;border-radius:7px;font-size:13px;font-weight:500}
+.tabs button.on{background:var(--surface-2);color:var(--ink)}
+
+/* ---------- App ---------- */
+.app{max-width:1280px;margin:0 auto;padding:18px clamp(12px,3vw,28px) 80px}
+.topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+.topbar .brand{margin:0;flex:1 1 auto}
+.sync{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:none}
+.dot.ok{background:var(--teal);box-shadow:0 0 0 3px #2dd4bf22}
+.dot.dirty{background:var(--amber);box-shadow:0 0 0 3px #f0a04b22}
+.dot.off{background:var(--faint)}
+.dot.busy{background:var(--teal);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+.top-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;position:relative;overflow:hidden}
+.card .k{font-size:11.5px;color:var(--muted);letter-spacing:.3px;text-transform:uppercase}
+.card .v{font-size:21px;margin-top:6px;letter-spacing:-.3px}
+.card.input-card{border-color:#2dd4bf55;background:linear-gradient(160deg,#14211f,var(--surface))}
+.card.flow input{width:100%;background:transparent;border:none;color:var(--ink);font-family:var(--mono);font-size:22px;font-weight:600;outline:none;padding:0;margin-top:4px}
+.card .hint{font-size:11px;color:var(--faint);margin-top:5px}
+.v.pos{color:var(--teal)} .v.neg{color:var(--amber)} .v.warn{color:var(--warn)}
+.card.alert{border-color:#f0a04b66}
+
+/* tag filter bar */
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0 10px}
+.toolbar h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0;font-weight:600}
+.chips{display:flex;gap:7px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--surface-2);color:var(--muted);border-radius:999px;padding:5px 11px;font-size:12px;display:flex;align-items:center;gap:6px}
+.chip.on{border-color:var(--teal);color:var(--teal);background:#14211f}
+.chip .cnt{font-family:var(--mono);font-size:11px;opacity:.7}
+.spacer{flex:1}
+
+/* table */
+.tablewrap{border:1px solid var(--line);border-radius:var(--radius);overflow:auto;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:1040px}
+thead th{
+  position:sticky;top:0;z-index:2;background:var(--surface-2);
+  font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:600;
+  text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);white-space:nowrap;
+}
+thead th.r{text-align:right}
+tbody td{padding:7px 10px;border-bottom:1px solid var(--line-soft);vertical-align:middle;font-size:13px}
+tbody tr:hover{background:#0f1620}
+td.r{text-align:right}
+.cellinput{width:100%;background:transparent;border:1px solid transparent;color:var(--ink);border-radius:7px;padding:6px 8px;font-size:13px;outline:none;transition:border-color .12s,background .12s}
+.cellinput:hover{border-color:var(--line)}
+.cellinput:focus{border-color:var(--teal);background:var(--bg)}
+.cellinput.num{text-align:right}
+.cellinput.name{font-weight:500}
+.muted{color:var(--muted)}
+.computed{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.computed.dim{color:var(--muted)}
+.amt{font-family:var(--mono);font-weight:600;text-align:right;white-space:nowrap}
+.amt.buy{color:var(--teal)} .amt.sell{color:var(--amber)} .amt.zero{color:var(--faint);font-weight:400}
+.amt small{display:block;font-size:10px;font-weight:500;letter-spacing:.4px;text-transform:uppercase;opacity:.75}
+.devwrap{display:flex;align-items:center;gap:9px;min-width:170px}
+.devnum{font-family:var(--mono);font-size:12px;width:54px;text-align:right;color:var(--muted)}
+.bar{position:relative;flex:1;height:18px;background:var(--bg);border-radius:5px;overflow:hidden;border:1px solid var(--line-soft)}
+.bar-zero{position:absolute;left:50%;top:0;bottom:0;width:1px;background:#3a4753;transform:translateX(-.5px)}
+.bar-fill{position:absolute;top:2px;bottom:2px;border-radius:3px;transition:left .35s ease,width .35s ease,background .2s}
+.bar-fill.under{background:linear-gradient(90deg,#2dd4bf55,#2dd4bf)}
+.bar-fill.over{background:linear-gradient(90deg,#f0a04b,#f0a04b55)}
+.bar-mark{position:absolute;top:-1px;bottom:-1px;width:2px;background:#e8eef3;box-shadow:0 0 5px #000;transition:left .35s ease;opacity:.85}
+.tagcell{min-width:150px}
+.tags{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.tag{background:var(--surface-3);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:3px 8px;font-size:11px;display:flex;align-items:center;gap:5px}
+.tag b{font-weight:500}
+.tag x{cursor:pointer;color:var(--faint);font-style:normal;font-weight:700;line-height:1}
+.tag x:hover{color:var(--danger)}
+.tagadd{width:74px;background:transparent;border:1px dashed var(--line);color:var(--muted);border-radius:999px;padding:3px 8px;font-size:11px;outline:none}
+.tagadd:focus{border-color:var(--teal);border-style:solid}
+.rowdel{background:transparent;border:none;color:var(--faint);font-size:16px;line-height:1;padding:4px 6px;border-radius:6px}
+.rowdel:hover{color:var(--danger);background:#1c1416}
+.acct .cellinput{font-size:12px;color:var(--muted)}
+tfoot td{padding:12px;border-top:2px solid var(--line);font-family:var(--mono);font-weight:600;background:var(--surface-2)}
+tfoot .lbl{font-family:var(--sans);text-transform:uppercase;letter-spacing:.4px;font-size:11px;color:var(--muted)}
+
+.addrow{margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+footer.mini{margin-top:26px;color:var(--faint);font-size:12px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.pill{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:11px;color:var(--muted)}
+.pill.good{color:var(--teal);border-color:var(--teal-dim)}
+
+/* explainer */
+details.how{margin:6px 0 4px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.how summary{cursor:pointer;list-style:none;padding:12px 16px;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+details.how summary::-webkit-details-marker{display:none}
+details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-soft)}
+.howbody{padding:14px 16px;font-size:13px;color:var(--muted);line-height:1.6}
+.howbody code{font-family:var(--mono);background:var(--bg);padding:1px 6px;border-radius:5px;color:var(--teal);font-size:12px}
+.howbody b{color:var(--ink);font-weight:600}
+
+/* toast + modal */
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--surface-3);border:1px solid var(--line);color:var(--ink);padding:11px 18px;border-radius:11px;font-size:13.5px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:50;box-shadow:0 18px 40px -18px #000}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{border-color:var(--danger)}
+.modal-bg{position:fixed;inset:0;background:#06090c99;display:grid;place-items:center;padding:20px;z-index:40;backdrop-filter:blur(3px)}
+.modal{width:min(460px,100%);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px}
+.modal h3{margin:0 0 4px;font-size:17px}
+.modal p{color:var(--muted);font-size:13px;margin:0 0 16px}
+.banner{background:#241a10;border:1px solid #f0a04b55;color:var(--amber);border-radius:var(--radius-sm);padding:10px 14px;font-size:12.5px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start}
+
+@media (max-width:640px){
+  .card .v{font-size:18px}
+  .brand h1{font-size:18px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+</style>
+</head>
+<body>
+
+<!-- ============ LOCK / SETUP / OFFLINE GATE ============ -->
+<div id="gate" class="gate">
+  <div class="gate-card">
+    <div class="brand"><div class="logo"></div><div><h1>CalcLazy</h1><div class="sub">Rebalanceamento lazy · privado</div></div></div>
+
+    <div id="gate-connecting">
+      <p class="gate-lead">Conectando ao repositório…</p>
+    </div>
+
+    <!-- UNLOCK -->
+    <div id="gate-unlock" class="hide">
+      <p class="gate-lead">Carteira encontrada. Digite sua senha para decifrar os dados.</p>
+      <label class="fld"><span>Senha</span><input id="u-pass" class="txt" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+      <div class="btn-row"><button id="u-go" class="btn primary">Desbloquear</button><button class="btn ghost" data-offline>Usar offline</button></div>
+      <div id="u-msg" class="gate-msg"></div>
+      <p class="note">A senha decifra os dados localmente (AES‑GCM). Ela nunca é enviada a lugar nenhum. Sem a senha, o arquivo no GitHub é texto cifrado ilegível.</p>
+    </div>
+
+    <!-- SETUP -->
+    <div id="gate-setup" class="hide">
+      <p class="gate-lead">Primeiro acesso. Defina uma senha e cole seu token do GitHub para criar a carteira cifrada.</p>
+      <label class="fld"><span>Senha (mín. 8 caracteres)</span><input id="s-pass" class="txt" type="password" autocomplete="new-password" placeholder="escolha uma senha forte"></label>
+      <label class="fld"><span>Confirmar senha</span><input id="s-pass2" class="txt" type="password" autocomplete="new-password"></label>
+      <label class="fld"><span>Token do GitHub (PAT fine‑grained, Contents: read & write)</span><input id="s-token" class="txt" type="password" placeholder="github_pat_..."></label>
+      <div class="tabs"><button id="s-empty" class="on">Começar vazio</button><button id="s-example">Carregar exemplo</button></div>
+      <div class="btn-row"><button id="s-go" class="btn primary">Criar e salvar</button><button class="btn ghost" data-offline>Usar offline</button></div>
+      <div id="s-msg" class="gate-msg"></div>
+      <p class="note"><b>Importante:</b> guarde a senha — ela é a única chave dos seus dados e do token. O token fica cifrado dentro do arquivo, então em outro computador basta a senha.</p>
+    </div>
+
+    <!-- OFFLINE / ERROR -->
+    <div id="gate-offline" class="hide">
+      <div class="banner"><span>⚠︎</span><span id="off-text">Não foi possível falar com o GitHub a partir deste ambiente. A sincronização funciona quando o app está hospedado no GitHub Pages.</span></div>
+      <div class="btn-row"><button id="o-retry" class="btn">Tentar de novo</button><button class="btn primary" data-offline>Usar offline (sem salvar)</button></div>
+      <p class="note">No modo offline você usa a calculadora normalmente, mas nada é gravado no GitHub.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" class="app hide">
+  <div class="topbar">
+    <div class="brand"><div class="logo"></div><div><h1>CalcLazy</h1><div class="sub">Rebalanceamento lazy ótimo</div></div></div>
+    <div class="sync"><span id="syncdot" class="dot off"></span><span id="synctext">offline</span></div>
+    <div class="top-actions">
+      <button id="btn-save" class="btn primary sm">Salvar</button>
+      <button id="btn-config" class="btn ghost sm">Repositório</button>
+      <button id="btn-lock" class="btn ghost sm">Bloquear</button>
+    </div>
+  </div>
+
+  <div id="offline-banner" class="banner hide"><span>⚠︎</span><span>Modo offline — alterações não são salvas no GitHub.</span></div>
+
+  <details class="how">
+    <summary>▸ Como o cálculo funciona</summary>
+    <div class="howbody">
+      Para cada ativo, o <b>valor‑alvo</b> = <code>%alvo × (total atual + aporte/resgate)</code> e o <b>desvio</b> = <code>valor atual ÷ valor‑alvo − 1</code>.
+      Ao <b>aportar</b> (valor positivo), o dinheiro novo enche primeiro os ativos mais sub‑alocados até todos atingirem um mesmo nível de desvio — maximiza o menor desvio, sem vender nada.
+      Ao <b>resgatar</b> (valor negativo), vende dos mais sobre‑alocados até nivelar — minimiza o maior desvio, sem comprar nada.
+      O campo <b>mín. mov.</b> (opcional) respeita o aporte/resgate mínimo de cada fundo: se a compra/venda calculada ficar abaixo do mínimo, aquele ativo sai da conta e o valor é redistribuído entre os elegíveis (a lógica lazy é refeita). Sobras que não atingem nenhum mínimo aparecem como “não aplicado”.
+      A coluna <b>Comprar/Vender</b> é o resultado do cálculo e não é editável.
+    </div>
+  </details>
+
+  <div class="cards">
+    <div class="card input-card flow">
+      <div class="k">Aporte / Resgate</div>
+      <input id="flow" class="num" type="text" inputmode="decimal" placeholder="0,00">
+      <div class="hint">positivo = aportar · negativo = resgatar</div>
+    </div>
+    <div class="card"><div class="k">Total atual</div><div id="s-current" class="v num">—</div></div>
+    <div class="card"><div class="k">Total final</div><div id="s-final" class="v num">—</div></div>
+    <div class="card"><div class="k">Soma alvo</div><div id="s-sumpct" class="v num">—</div><div class="hint">deve somar 100%</div></div>
+    <div class="card"><div class="k" id="s-movk">A movimentar</div><div id="s-move" class="v num">—</div></div>
+    <div id="s-leftcard" class="card alert hide"><div class="k" id="s-leftk">Não aplicado</div><div id="s-left" class="v num warn">—</div></div>
+  </div>
+
+  <div class="toolbar">
+    <h2>Tags</h2>
+    <div id="tagchips" class="chips"></div>
+    <div class="spacer"></div>
+    <button id="clearfilter" class="btn ghost sm hide">Limpar filtro</button>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>Ativo</th><th>Conta</th><th class="tagcell">Tags</th>
+        <th class="r">Alvo %</th><th class="r">Atual R$</th><th class="r">Mín. mov.</th>
+        <th class="r">Alvo R$</th><th>Desvio</th><th class="r">Comprar / Vender</th><th class="r">Final %</th><th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+      <tfoot><tr>
+        <td class="lbl">Totais</td><td></td><td></td>
+        <td class="r" id="f-pct">—</td><td class="r" id="f-cur">—</td><td></td>
+        <td class="r" id="f-tv">—</td><td></td><td class="r" id="f-move">—</td><td class="r" id="f-fin">100%</td><td></td>
+      </tr></tfoot>
+    </table>
+  </div>
+
+  <div class="addrow">
+    <button id="addrow" class="btn sm">+ Adicionar ativo</button>
+    <button id="loadexample" class="btn ghost sm">Carregar exemplo da planilha</button>
+  </div>
+
+  <footer class="mini">
+    <span class="pill" id="enginecheck">engine: verificando…</span>
+    <span>Cálculo: <i>Optimal lazy rebalancing</i> · dados cifrados localmente</span>
+  </footer>
+</div>
+
+<!-- config modal -->
+<div id="cfg-modal" class="modal-bg hide">
+  <div class="modal">
+    <h3>Repositório de sincronização</h3>
+    <p>Onde o arquivo cifrado é lido e salvo. Padrão já preenchido.</p>
+    <label class="fld"><span>Usuário / organização</span><input id="cfg-owner" class="txt"></label>
+    <label class="fld"><span>Repositório</span><input id="cfg-repo" class="txt"></label>
+    <label class="fld"><span>Branch</span><input id="cfg-branch" class="txt"></label>
+    <label class="fld"><span>Caminho do arquivo</span><input id="cfg-path" class="txt"></label>
+    <div class="btn-row"><button id="cfg-save" class="btn primary">Salvar e recarregar</button><button id="cfg-cancel" class="btn ghost">Cancelar</button></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   CONFIG
+   ============================================================ */
+const DEFAULT_CFG = { owner:"DSBrit0", repo:"CalcLazy", branch:"main", path:"data/portfolio.enc.json" };
+function loadCfg(){
+  try{ const c = JSON.parse(localStorage.getItem("calclazy.cfg")||"null"); if(c&&c.owner) return c; }catch(e){}
+  return {...DEFAULT_CFG};
+}
+function saveCfg(c){ try{ localStorage.setItem("calclazy.cfg", JSON.stringify(c)); }catch(e){} }
+
+const session = { cfg:loadCfg(), key:null, salt:null, token:null, sha:null, fileExists:false, offline:false, unlocked:false };
+let state = { assets:[], cashFlow:0 };
+let activeFilters = new Set();
+let dirty = false;
+
+/* ============================================================
+   FORMAT / PARSE (pt-BR)
+   ============================================================ */
+const brl = new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"});
+const fmtBRL = n => brl.format(isFinite(n)?n:0);
+const fmtSignedBRL = n => (n>0?"+":n<0?"−":"")+fmtBRL(Math.abs(n));
+const fmtPct = (n,d=1)=> (isFinite(n)?n:0).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d})+"%";
+function parseNum(s){
+  if(typeof s==="number") return s;
+  if(!s) return 0;
+  let t=(""+s).replace(/[R$\s%]/g,"").trim();
+  if(t===""||t==="-"||t==="−") return 0;
+  t=t.replace("−","-");
+  const hasDot=t.includes("."), hasComma=t.includes(",");
+  if(hasDot&&hasComma){ t=t.replace(/\./g,"").replace(",","."); }
+  else if(hasComma){ t=t.replace(",","."); }
+  const v=parseFloat(t);
+  return isFinite(v)?v:0;
+}
+
+/* ============================================================
+   CRYPTO  (PBKDF2 + AES-GCM, Web Crypto)
+   ============================================================ */
+const td=new TextDecoder(), te=new TextEncoder();
+const PBKDF2_ITER=250000;
+function b64FromBytes(buf){ const a=new Uint8Array(buf); let s=""; for(let i=0;i<a.length;i++) s+=String.fromCharCode(a[i]); return btoa(s); }
+function bytesFromB64(b64){ const s=atob((b64||"").replace(/\s+/g,"")); const a=new Uint8Array(s.length); for(let i=0;i<s.length;i++) a[i]=s.charCodeAt(i); return a; }
+const b64Utf8 = str => b64FromBytes(te.encode(str));
+const utf8FromB64 = b64 => td.decode(bytesFromB64(b64));
+async function deriveKey(password, saltBytes){
+  const base=await crypto.subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2", salt:saltBytes, iterations:PBKDF2_ITER, hash:"SHA-256"}, base, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
+}
+async function encryptObj(key, saltBytes, obj){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, te.encode(JSON.stringify(obj)));
+  return { v:1, kdf:"PBKDF2-SHA256", iter:PBKDF2_ITER, salt:b64FromBytes(saltBytes), iv:b64FromBytes(iv), ct:b64FromBytes(ct) };
+}
+async function decryptObj(key, file){
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM", iv:bytesFromB64(file.iv)}, key, bytesFromB64(file.ct));
+  return JSON.parse(td.decode(pt));
+}
+
+/* ============================================================
+   GITHUB  (contents API)
+   ============================================================ */
+async function ghGet(cfg){
+  const url=`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${encodeURIComponent(cfg.path).replace(/%2F/g,"/")}?ref=${encodeURIComponent(cfg.branch)}&t=${Date.now()}`;
+  const r=await fetch(url,{headers:{Accept:"application/vnd.github+json"}});
+  if(r.status===404) return {exists:false};
+  if(!r.ok) throw new Error("GitHub GET "+r.status);
+  const j=await r.json();
+  return {exists:true, sha:j.sha, file:JSON.parse(utf8FromB64(j.content))};
+}
+async function ghPut(cfg, token, fileObj, sha){
+  const url=`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${encodeURIComponent(cfg.path).replace(/%2F/g,"/")}`;
+  const body={ message:"Atualiza carteira CalcLazy — "+new Date().toISOString(), content:b64Utf8(JSON.stringify(fileObj)), branch:cfg.branch };
+  if(sha) body.sha=sha;
+  const r=await fetch(url,{method:"PUT", headers:{Accept:"application/vnd.github+json", Authorization:"Bearer "+token, "Content-Type":"application/json"}, body:JSON.stringify(body)});
+  if(!r.ok){ let m=""; try{ m=(await r.json()).message||""; }catch(e){} throw new Error("GitHub PUT "+r.status+(m?" — "+m:"")); }
+  return (await r.json()).content.sha;
+}
+
+/* ============================================================
+   ENGINE  —  Optimal Lazy Rebalancing (replica da planilha)
+   amount > 0 => comprar ; amount < 0 => vender
+   ============================================================ */
+function enrich(assets, totalFinal){
+  return assets.map(a=>{
+    const tp=parseNum(a.targetPct)/100;
+    const cur=parseNum(a.current);
+    const tv=tp*totalFinal;
+    const dev = tv>1e-9 ? cur/tv - 1 : 0;
+    return { id:a.id, tv, dev, min:Math.max(0,parseNum(a.minMove)||0) };
+  });
+}
+// água-acima: distribui C (>0) elevando os menores desvios até um nível comum
+function fillContribution(items, C){
+  const sorted=items.filter(i=>i.tv>1e-9).slice().sort((a,b)=>a.dev-b.dev);
+  const amt={}; sorted.forEach(i=>amt[i.id]=0);
+  if(!sorted.length||C<=0) return {amt, level:null};
+  let cumTv=0, cumDevTv=0, level=null, kStop=-1;
+  for(let k=0;k<sorted.length;k++){
+    cumTv+=sorted[k].tv; cumDevTv+=sorted[k].dev*sorted[k].tv;
+    const lvl=(C+cumDevTv)/cumTv;
+    const next = k+1<sorted.length ? sorted[k+1].dev : Infinity;
+    if(lvl<=next){ level=lvl; kStop=k; break; }
+  }
+  if(level===null){ level=(C+cumDevTv)/cumTv; kStop=sorted.length-1; }
+  for(let k=0;k<=kStop;k++){ const i=sorted[k]; const x=(level-i.dev)*i.tv; amt[i.id]=x>0?x:0; }
+  return {amt, level};
+}
+// água-abaixo: remove W (>0) baixando os maiores desvios até um nível comum
+function fillWithdrawal(items, W){
+  const sorted=items.filter(i=>i.tv>1e-9).slice().sort((a,b)=>b.dev-a.dev);
+  const amt={}; sorted.forEach(i=>amt[i.id]=0);
+  if(!sorted.length||W<=0) return {amt, level:null};
+  let cumTv=0, cumDevTv=0, level=null, kStop=-1;
+  for(let k=0;k<sorted.length;k++){
+    cumTv+=sorted[k].tv; cumDevTv+=sorted[k].dev*sorted[k].tv;
+    const lvl=(cumDevTv-W)/cumTv;
+    const next = k+1<sorted.length ? sorted[k+1].dev : -Infinity;
+    if(lvl>=next){ level=lvl; kStop=k; break; }
+  }
+  if(level===null){ level=(cumDevTv-W)/cumTv; kStop=sorted.length-1; }
+  let moved=0;
+  for(let k=0;k<=kStop;k++){ const i=sorted[k]; const x=(i.dev-level)*i.tv; amt[i.id]=x>0?x:0; moved+=amt[i.id]; }
+  return {amt, level, moved};
+}
+// Opção A: aplica mínimo removendo o menor violador e refazendo o lazy
+function applyMin(items, total, kind){ // kind: "buy" | "sell"
+  let eligible=items.filter(i=>i.tv>1e-9).map(i=>i.id);
+  const byId={}; items.forEach(i=>byId[i.id]=i);
+  let finalAmt={}, level=null, guard=0;
+  while(true){
+    if(++guard>items.length+2){ break; }
+    const elItems=eligible.map(id=>byId[id]);
+    const res = kind==="buy" ? fillContribution(elItems, total) : fillWithdrawal(elItems, total);
+    level=res.level;
+    // achar menor movimento positivo abaixo do mínimo
+    let worst=null, worstVal=Infinity;
+    for(const id of eligible){
+      const a=res.amt[id]||0, mn=byId[id].min;
+      if(mn>0 && a>1e-6 && a < mn-1e-6 && a<worstVal){ worstVal=a; worst=id; }
+    }
+    if(worst===null){ finalAmt=res.amt; break; }
+    eligible=eligible.filter(id=>id!==worst);
+    if(!eligible.length){ finalAmt={}; level=null; break; }
+  }
+  return {finalAmt, level};
+}
+function computeRebalance(assets, cashFlow){
+  const totalCurrent=assets.reduce((s,a)=>s+parseNum(a.current),0);
+  const totalFinal=totalCurrent+cashFlow;
+  const items=enrich(assets, totalFinal);
+  const result={}; let level=null, leftover=0, direction="none";
+  items.forEach(i=>result[i.id]={tv:i.tv, dev:i.dev, amount:0});
+
+  if(Math.abs(cashFlow)>1e-9 && totalFinal>0){
+    if(cashFlow>0){
+      direction="buy";
+      const {finalAmt, level:lv}=applyMin(items, cashFlow, "buy");
+      level=lv; let spent=0;
+      items.forEach(i=>{ const x=finalAmt[i.id]||0; result[i.id].amount=x; spent+=x; });
+      leftover=cashFlow-spent;
+    } else {
+      direction="sell";
+      const W=-cashFlow;
+      const {finalAmt, level:lv}=applyMin(items, W, "sell");
+      level=lv; let sold=0;
+      items.forEach(i=>{ const x=finalAmt[i.id]||0; result[i.id].amount=-x; sold+=x; });
+      leftover=W-sold; // não resgatado
+    }
+  }
+  let move=0;
+  items.forEach(i=>{
+    const r=result[i.id];
+    r.finalValue=parseNum(assetById(i.id).current)+r.amount;
+    r.finalPct = totalFinal>0 ? r.finalValue/totalFinal : 0;
+    move+=Math.abs(r.amount);
+  });
+  const sumPct=assets.reduce((s,a)=>s+parseNum(a.targetPct),0);
+  return {totalCurrent, totalFinal, sumPct, result, level, leftover:Math.max(0,leftover), move, direction};
+}
+function assetById(id){ return state.assets.find(a=>a.id===id)||{}; }
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+const $=id=>document.getElementById(id);
+const el=(t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+let uidc=0; const uid=()=> "a"+(Date.now().toString(36))+(uidc++).toString(36);
+
+function allTags(){ const s=new Set(); state.assets.forEach(a=>(a.tags||[]).forEach(t=>s.add(t))); return [...s].sort((x,y)=>x.localeCompare(y,"pt-BR")); }
+
+function fullRender(){
+  renderTags();
+  renderTable();
+  recalc();
+  markDirty(dirty);
+}
+
+function renderTags(){
+  const wrap=$("tagchips"); wrap.innerHTML="";
+  const counts={}; state.assets.forEach(a=>(a.tags||[]).forEach(t=>counts[t]=(counts[t]||0)+1));
+  const tags=allTags();
+  if(!tags.length){ wrap.appendChild(el("span","muted","sem tags — adicione na coluna Tags")); }
+  tags.forEach(t=>{
+    const c=el("button","chip"+(activeFilters.has(t)?" on":""));
+    c.innerHTML=`${t} <span class="cnt">${counts[t]}</span>`;
+    c.onclick=()=>{ activeFilters.has(t)?activeFilters.delete(t):activeFilters.add(t); fullRender(); };
+    wrap.appendChild(c);
+  });
+  $("clearfilter").classList.toggle("hide", activeFilters.size===0);
+}
+
+function rowVisible(a){ if(activeFilters.size===0) return true; return (a.tags||[]).some(t=>activeFilters.has(t)); }
+
+function renderTable(){
+  const tb=$("tbody"); tb.innerHTML="";
+  state.assets.forEach(a=>{
+    if(!rowVisible(a)) return;
+    const tr=el("tr"); tr.dataset.id=a.id;
+    tr.appendChild(tdInput(a.id,"name","Nome do ativo",a.name,"name"));
+    tr.appendChild(tdInput(a.id,"account","banco · liquidez",a.account,"",("acct")));
+    tr.appendChild(tagCell(a));
+    tr.appendChild(tdInput(a.id,"targetPct","0",a.targetPct,"num",null,"r"));
+    tr.appendChild(tdInput(a.id,"current","0,00",a.current,"num",null,"r"));
+    tr.appendChild(tdInput(a.id,"minMove","0",a.minMove,"num",null,"r"));
+    tr.appendChild(computedCell(`tv-${a.id}`,"r computed dim"));
+    tr.appendChild(devCell(a.id));
+    tr.appendChild(amtCell(a.id));
+    tr.appendChild(computedCell(`fin-${a.id}`,"r computed dim"));
+    const del=el("td","r"); const b=el("button","rowdel","×"); b.title="Remover"; b.onclick=()=>{ state.assets=state.assets.filter(x=>x.id!==a.id); markDirty(true); fullRender(); }; del.appendChild(b);
+    tr.appendChild(del);
+    tb.appendChild(tr);
+  });
+}
+function tdInput(id, field, ph, val, extra, _x, align){
+  const td=el("td",(align==="r"?"r ":"")+(extra==="acct"?"acct":""));
+  const inp=el("input","cellinput "+(extra||""));
+  inp.placeholder=ph; inp.value=(val==null?"":val); inp.dataset.id=id; inp.dataset.field=field;
+  if(extra==="num"){ inp.inputMode="decimal"; }
+  td.appendChild(inp); return td;
+}
+function computedCell(idn, cls){ const td=el("td",cls); td.id="c-"+idn; td.textContent="—"; return td; }
+function devCell(id){
+  const td=el("td");
+  td.innerHTML=`<div class="devwrap"><span class="devnum" id="c-devn-${id}">—</span>
+    <div class="bar"><div class="bar-zero"></div><div class="bar-fill" id="c-fill-${id}"></div><div class="bar-mark" id="c-mark-${id}"></div></div></div>`;
+  return td;
+}
+function amtCell(id){ const td=el("td","r"); td.innerHTML=`<div class="amt zero" id="c-amt-${id}">—</div>`; return td; }
+
+function tagCell(a){
+  const td=el("td","tagcell");
+  const box=el("div","tags");
+  (a.tags||[]).forEach(t=>{
+    const tag=el("span","tag",`<b>${escapeHtml(t)}</b><x title="remover">×</x>`);
+    tag.querySelector("x").onclick=()=>{ a.tags=(a.tags||[]).filter(x=>x!==t); activeFilters.delete(t); markDirty(true); fullRender(); };
+    box.appendChild(tag);
+  });
+  const add=el("input","tagadd"); add.placeholder="+ tag";
+  add.onkeydown=e=>{ if(e.key==="Enter"){ const v=add.value.trim(); if(v){ a.tags=a.tags||[]; if(!a.tags.includes(v)){ a.tags.push(v); markDirty(true); fullRender(); } } } };
+  box.appendChild(add);
+  td.appendChild(box); return td;
+}
+function escapeHtml(s){ return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+/* recalcula e atualiza apenas células computadas + resumo (sem recriar inputs) */
+function recalc(){
+  const R=computeRebalance(state.assets, state.cashFlow);
+  // resumo
+  $("s-current").textContent=fmtBRL(R.totalCurrent);
+  $("s-final").textContent=fmtBRL(R.totalFinal);
+  const sp=$("s-sumpct"); sp.textContent=fmtPct(R.sumPct, (R.sumPct%1===0?0:2));
+  sp.className="v num"+(Math.abs(R.sumPct-100)>0.009?" warn":"");
+  const mv=$("s-move"); mv.textContent=fmtBRL(R.move);
+  mv.className="v num"+(R.direction==="buy"?" pos":R.direction==="sell"?" neg":"");
+  $("s-movk").textContent = R.direction==="sell" ? "A resgatar" : "A aplicar";
+  // leftover
+  const lc=$("s-leftcard");
+  if(R.leftover>0.005){ lc.classList.remove("hide"); $("s-left").textContent=fmtBRL(R.leftover);
+    $("s-leftk").textContent = R.direction==="sell" ? "Não resgatado" : "Não aplicado"; }
+  else lc.classList.add("hide");
+  // footer
+  $("f-pct").textContent=fmtPct(R.sumPct, (R.sumPct%1===0?0:2));
+  $("f-cur").textContent=fmtBRL(R.totalCurrent);
+  $("f-tv").textContent=fmtBRL(state.assets.reduce((s,a)=>s+R.result[a.id].tv,0));
+  $("f-move").textContent=(R.direction==="sell"?"−":R.direction==="buy"?"+":"")+fmtBRL(R.move);
+  $("f-move").style.color = R.direction==="buy"?"var(--teal)":R.direction==="sell"?"var(--amber)":"";
+
+  const MAXABS=0.30;
+  const pos=d=>50+Math.max(-1,Math.min(1,d/MAXABS))*50;
+  state.assets.forEach(a=>{
+    const r=R.result[a.id]; if(!r) return;
+    const tv=$("c-tv-"+a.id); if(tv) tv.textContent=fmtBRL(r.tv);
+    const fin=$("c-fin-"+a.id); if(fin) fin.textContent=fmtPct(r.finalPct*100,1);
+    const dn=$("c-devn-"+a.id); if(dn){ dn.textContent=(r.dev>0?"+":"")+fmtPct(r.dev*100,1); dn.style.color=r.dev<-0.001?"var(--teal)":r.dev>0.001?"var(--amber)":"var(--muted)"; }
+    const fill=$("c-fill-"+a.id);
+    if(fill){ const p=pos(r.dev); const lo=Math.min(p,50), hi=Math.max(p,50);
+      fill.style.left=lo+"%"; fill.style.width=(hi-lo)+"%";
+      fill.className="bar-fill "+(r.dev<0?"under":"over"); }
+    const mark=$("c-mark-"+a.id);
+    if(mark){ if(R.level==null){ mark.style.opacity="0"; } else { mark.style.opacity=".85"; mark.style.left=pos(R.level)+"%"; } }
+    const amt=$("c-amt-"+a.id);
+    if(amt){
+      if(Math.abs(r.amount)<0.005){ amt.className="amt zero"; amt.innerHTML="—"; }
+      else if(r.amount>0){ amt.className="amt buy"; amt.innerHTML=`${fmtBRL(r.amount)}<small>comprar</small>`; }
+      else { amt.className="amt sell"; amt.innerHTML=`${fmtBRL(-r.amount)}<small>vender</small>`; }
+    }
+  });
+  // engine check pill (validação)
+  if(window.__engineOK!=null){ const p=$("enginecheck"); p.textContent="engine "+(window.__engineOK?"validado ✓":"⚠ ver console"); if(window.__engineOK) p.classList.add("good"); }
+}
+
+/* ============================================================
+   STATE EVENTS
+   ============================================================ */
+function markDirty(d){ dirty=d; if(session.offline){ setSync("off","offline"); return;} setSync(d?"dirty":"ok", d?"alterações não salvas":"sincronizado"); }
+function setSync(cls,txt){ $("syncdot").className="dot "+cls; $("synctext").textContent=txt; }
+
+$("tbody").addEventListener("input", e=>{
+  const t=e.target; if(!t.dataset || !t.dataset.field) return;
+  const a=assetById(t.dataset.id); if(!a) return;
+  a[t.dataset.field]=t.value;
+  markDirty(true); recalc();
+});
+$("flow").addEventListener("input", e=>{ state.cashFlow=parseNum(e.target.value); markDirty(true); recalc(); });
+$("addrow").onclick=()=>{ state.assets.push({id:uid(),name:"",account:"",targetPct:"",current:"",minMove:"",tags:[]}); markDirty(true); fullRender(); };
+$("loadexample").onclick=()=>{ if(state.assets.length && !confirm("Substituir os ativos atuais pelo exemplo da planilha?")) return; loadExample(); markDirty(true); fullRender(); };
+$("clearfilter").onclick=()=>{ activeFilters.clear(); fullRender(); };
+
+/* ============================================================
+   PERSISTENCE FLOW
+   ============================================================ */
+function packFile(){ return { app:"CalcLazy", v:1, savedAt:new Date().toISOString(), state, github:{ token: session.token } }; }
+async function doSave(){
+  if(session.offline){ toast("Modo offline — sem sincronização","err"); return; }
+  if(!session.key||!session.token){ toast("Sem chave/token nesta sessão","err"); return; }
+  try{
+    setSync("busy","salvando…");
+    const file=await encryptObj(session.key, session.salt, packFile());
+    const sha=await ghPut(session.cfg, session.token, file, session.sha);
+    session.sha=sha; session.fileExists=true; markDirty(false);
+    toast("Salvo no GitHub");
+  }catch(err){ console.error(err); setSync("dirty","falha ao salvar"); toast(err.message||"Erro ao salvar","err"); }
+}
+$("btn-save").onclick=doSave;
+$("btn-lock").onclick=()=>{ if(dirty && !confirm("Há alterações não salvas. Bloquear mesmo assim?")) return; session.key=null; session.token=null; session.unlocked=false; showGate(); init(); };
+window.addEventListener("beforeunload", e=>{ if(dirty && !session.offline){ e.preventDefault(); e.returnValue=""; } });
+
+/* gate visibility helpers */
+function showGate(){ $("app").classList.add("hide"); $("gate").classList.remove("hide"); }
+function gatePane(id){ ["gate-connecting","gate-unlock","gate-setup","gate-offline"].forEach(p=>$(p).classList.toggle("hide",p!==id)); }
+function enterApp(){ $("gate").classList.add("hide"); $("app").classList.remove("hide");
+  $("flow").value = state.cashFlow ? state.cashFlow.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "";
+  $("offline-banner").classList.toggle("hide", !session.offline);
+  $("btn-save").disabled=session.offline;
+  fullRender(); session.unlocked=true; markDirty(false);
+}
+
+document.querySelectorAll("[data-offline]").forEach(b=> b.onclick=()=>{
+  session.offline=true; if(!state.assets.length) loadExample();
+  enterApp();
+});
+
+/* UNLOCK */
+$("u-go").onclick=unlock;
+$("u-pass").addEventListener("keydown",e=>{ if(e.key==="Enter") unlock(); });
+async function unlock(){
+  const pass=$("u-pass").value; const msg=$("u-msg"); msg.className="gate-msg"; msg.textContent="";
+  if(!pass){ msg.classList.add("err"); msg.textContent="Digite a senha."; return; }
+  try{
+    msg.textContent="Decifrando…";
+    const salt=bytesFromB64(session._file.salt);
+    const key=await deriveKey(pass, salt);
+    const data=await decryptObj(key, session._file);
+    session.key=key; session.salt=salt; session.token=(data.github&&data.github.token)||null;
+    state=data.state||{assets:[],cashFlow:0};
+    if(!state.assets) state.assets=[]; state.assets.forEach(a=>{ if(!a.id)a.id=uid(); if(!a.tags)a.tags=[]; });
+    enterApp();
+  }catch(err){ console.warn(err); msg.className="gate-msg err"; msg.textContent="Senha incorreta ou arquivo ilegível."; }
+}
+
+/* SETUP */
+let setupSeed="empty";
+$("s-empty").onclick=()=>{ setupSeed="empty"; $("s-empty").classList.add("on"); $("s-example").classList.remove("on"); };
+$("s-example").onclick=()=>{ setupSeed="example"; $("s-example").classList.add("on"); $("s-empty").classList.remove("on"); };
+$("s-go").onclick=createVault;
+async function createVault(){
+  const p=$("s-pass").value, p2=$("s-pass2").value, tok=$("s-token").value.trim(); const msg=$("s-msg"); msg.className="gate-msg";
+  if(p.length<8){ msg.classList.add("err"); msg.textContent="A senha precisa de ao menos 8 caracteres."; return; }
+  if(p!==p2){ msg.classList.add("err"); msg.textContent="As senhas não conferem."; return; }
+  if(!tok){ msg.classList.add("err"); msg.textContent="Cole o token do GitHub (ou use o modo offline)."; return; }
+  try{
+    msg.textContent="Criando e enviando…";
+    const salt=crypto.getRandomValues(new Uint8Array(16));
+    const key=await deriveKey(p, salt);
+    session.key=key; session.salt=salt; session.token=tok;
+    state = setupSeed==="example" ? exampleState() : {assets:[],cashFlow:0};
+    const file=await encryptObj(key, salt, packFile());
+    session.sha=await ghPut(session.cfg, tok, file, null);
+    session.fileExists=true;
+    enterApp();
+  }catch(err){ console.error(err); msg.className="gate-msg err"; msg.textContent=err.message||"Falha ao criar no GitHub."; }
+}
+
+/* CONFIG modal */
+$("btn-config").onclick=()=>{ const c=session.cfg; $("cfg-owner").value=c.owner; $("cfg-repo").value=c.repo; $("cfg-branch").value=c.branch; $("cfg-path").value=c.path; $("cfg-modal").classList.remove("hide"); };
+$("cfg-cancel").onclick=()=>$("cfg-modal").classList.add("hide");
+$("cfg-save").onclick=()=>{ session.cfg={owner:$("cfg-owner").value.trim(),repo:$("cfg-repo").value.trim(),branch:$("cfg-branch").value.trim()||"main",path:$("cfg-path").value.trim()||DEFAULT_CFG.path}; saveCfg(session.cfg); $("cfg-modal").classList.add("hide"); location.reload(); };
+
+/* INIT */
+async function init(){
+  gatePane("gate-connecting"); showGate();
+  try{
+    const res=await ghGet(session.cfg);
+    if(res.exists){ session._file=res.file; session.sha=res.sha; session.fileExists=true; gatePane("gate-unlock"); setTimeout(()=>$("u-pass").focus(),50); }
+    else { session.fileExists=false; gatePane("gate-setup"); }
+  }catch(err){
+    console.warn("GitHub indisponível:",err.message);
+    $("off-text").textContent="Não foi possível falar com o GitHub ("+err.message+"). A sincronização funciona quando o app está hospedado no GitHub Pages. Verifique também usuário/repo em ‘Repositório’.";
+    gatePane("gate-offline");
+  }
+}
+$("o-retry").onclick=init;
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+let toastT;
+function toast(t,kind){ const e=$("toast"); e.textContent=t; e.className="toast show"+(kind==="err"?" err":""); clearTimeout(toastT); toastT=setTimeout(()=>e.className="toast"+(kind==="err"?" err":""),2600); }
+
+/* ============================================================
+   EXEMPLO (estrutura real da planilha; valores são editáveis)
+   ============================================================ */
+function exampleState(){ return { cashFlow:7600, assets: EXAMPLE.map(a=>({id:uid(),...a})) }; }
+function loadExample(){ state=exampleState(); $("flow").value="7.600,00"; }
+const EXAMPLE=[
+ {name:"RIZA LOTUS FI RF", account:"BTG · D+1", targetPct:10, current:24860.58, minMove:100, tags:["Brasil","Renda Fixa"]},
+ {name:"WESTERN ASSET", account:"BTG · D+4", targetPct:6, current:16466.28, minMove:100, tags:["Brasil","Renda Fixa"]},
+ {name:"MAG CASH 10", account:"BTG · D+10", targetPct:6, current:13040.54, minMove:100, tags:["Brasil","Renda Fixa"]},
+ {name:"REAL INVESTOR FIC FIA BDR N I", account:"BTG · D+29", targetPct:5, current:12548.12, minMove:1000, tags:["Brasil","Ações"]},
+ {name:"REAL INVESTOR FIC FIM", account:"BTG · D+30", targetPct:5, current:12244.74, minMove:1000, tags:["Brasil","Multimercado"]},
+ {name:"TRIGONO FLAGSHIP", account:"BTG · D+62", targetPct:4, current:12615.16, minMove:100, tags:["Brasil","Ações"]},
+ {name:"NIKOS DI PLUS REFERENCIADO", account:"BTG · D+0", targetPct:10, current:24876.61, minMove:1, tags:["Brasil","Renda Fixa"]},
+ {name:"OURO PRETO REAL", account:"BTG · D+3", targetPct:6, current:14919.92, minMove:100, tags:["Brasil","Renda Fixa"]},
+ {name:"NOVUS RF EXCLUSIVE", account:"BTG · D+4", targetPct:6, current:14899.03, minMove:100, tags:["Brasil","Renda Fixa"]},
+ {name:"V8 SPEEDWAY LONG SHORT", account:"BTG · D+17", targetPct:6, current:14874.59, minMove:100, tags:["Brasil","Multimercado"]},
+ {name:"CHARLES RIVER FIA", account:"BTG · D+32", targetPct:5, current:12062.22, minMove:1000, tags:["Brasil","Ações"]},
+ {name:"ABSOLUTE HIDRA CDI PLUS", account:"BTG · D+46", targetPct:5, current:12615.87, minMove:1, tags:["Brasil","Renda Fixa"]},
+ {name:"STOXOS FI FINANCEIRO", account:"BTG · D+122", targetPct:1, current:12615.16, minMove:1000, tags:["Brasil","Multimercado"]},
+ {name:"LIBRA FIC FIM", account:"BTG · D+46", targetPct:4, current:9156.00, minMove:100, tags:["Brasil","Multimercado"]},
+ {name:"AMT", account:"Avenue", targetPct:1, current:2548.59, minMove:100, tags:["Internacional","REIT"]},
+ {name:"CRWD", account:"Avenue", targetPct:1, current:3703.83, minMove:100, tags:["Internacional","Ações"]},
+ {name:"DLR", account:"Avenue", targetPct:1, current:2884.13, minMove:100, tags:["Internacional","REIT"]},
+ {name:"FRT", account:"Avenue", targetPct:1, current:2624.25, minMove:100, tags:["Internacional","REIT"]},
+ {name:"O", account:"Avenue", targetPct:1, current:2579.77, minMove:100, tags:["Internacional","REIT"]},
+ {name:"STAG", account:"Avenue", targetPct:1, current:2715.19, minMove:100, tags:["Internacional","REIT"]},
+ {name:"VICI", account:"Avenue", targetPct:1, current:2605.04, minMove:100, tags:["Internacional","REIT"]},
+ {name:"ACWI", account:"Avenue", targetPct:1, current:3164.76, minMove:100, tags:["Internacional","ETF"]},
+ {name:"KXI", account:"Avenue", targetPct:1, current:4241.54, minMove:100, tags:["Internacional","ETF"]},
+ {name:"IVV", account:"Avenue", targetPct:1, current:7500.00, minMove:100, tags:["Internacional","ETF"]},
+ {name:"Cripto", account:"Binance", targetPct:1, current:4241.54, minMove:100, tags:["Cripto"]},
+ {name:"Reserva de emergência", account:"Itaú · D+0", targetPct:10, current:23013.79, minMove:100, tags:["Reserva"]}
+];
+
+/* ============================================================
+   SELF-TEST — valida o engine contra os números da planilha
+   (contribuição de 7.600 sem mínimo; tolerância R$2)
+   ============================================================ */
+(function selfTest(){
+  try{
+    const assets=EXAMPLE.map((a,i)=>({id:"t"+i, name:a.name, targetPct:a.targetPct, current:a.current, minMove:0, tags:[]}));
+    const save=state; state={assets,cashFlow:7600};
+    const R=computeRebalance(assets, 7600);
+    state=save;
+    const expect={ "MAG CASH 10":2090.65,"LIBRA FIC FIM":931.46,"Reserva de emergência":2204.86,"CHARLES RIVER FIA":547.10,
+      "REAL INVESTOR FIC FIM":364.58,"V8 SPEEDWAY LONG SHORT":256.60,"NOVUS RF EXCLUSIVE":232.16,"RIZA LOTUS FI RF":358.07,
+      "OURO PRETO REAL":211.27,"NIKOS DI PLUS REFERENCIADO":342.04,"REAL INVESTOR FIC FIA BDR N I":61.20 };
+    let ok=true, sum=0; const byName={}; assets.forEach(a=>byName[a.name]=a.id);
+    Object.keys(expect).forEach(n=>{ const got=R.result[byName[n]].amount; if(Math.abs(got-expect[n])>2){ ok=false; console.warn("FALHA",n,"esperado",expect[n],"obtido",got.toFixed(2)); } });
+    assets.forEach(a=> sum+=Math.max(0,R.result[a.id].amount));
+    if(Math.abs(sum-7600)>2){ ok=false; console.warn("Soma dos aportes",sum.toFixed(2),"≠ 7600"); }
+    window.__engineOK=ok;
+    console.log("%cCalcLazy self-test: "+(ok?"PASSOU ✓ (nível λ="+(R.level!=null?R.level.toFixed(5):"—")+")":"FALHOU ✗"),"color:"+(ok?"#2dd4bf":"#e5675f"));
+  }catch(e){ window.__engineOK=false; console.error("self-test erro",e); }
+})();
+
+init();
+</script>
+</body>
+</html>

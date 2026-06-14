@@ -267,7 +267,6 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
       <label class="fld"><span>Senha (mín. 8 caracteres)</span><input id="s-pass" class="txt" type="password" autocomplete="new-password" placeholder="escolha uma senha forte"></label>
       <label class="fld"><span>Confirmar senha</span><input id="s-pass2" class="txt" type="password" autocomplete="new-password"></label>
       <label class="fld"><span>Token do GitHub (PAT fine‑grained, Contents: read & write)</span><input id="s-token" class="txt" type="password" placeholder="github_pat_..."></label>
-      <div class="tabs"><button id="s-empty" class="on">Começar vazio</button><button id="s-example">Carregar exemplo</button></div>
       <div class="btn-row"><button id="s-go" class="btn primary">Criar e salvar</button></div>
       <div id="s-msg" class="gate-msg"></div>
       <p class="note"><b>Importante:</b> guarde a senha — ela é a única chave dos seus dados e do token. O token fica cifrado dentro do arquivo, então em outro computador basta a senha.</p>
@@ -343,14 +342,12 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
 
   <div class="addrow">
     <button id="addrow" class="btn sm">+ Adicionar ativo</button>
-    <button id="loadexample" class="btn ghost sm">Carregar exemplo da planilha</button>
     <button id="btn-order" class="btn ghost sm" disabled style="margin-left:auto">⊞ Ver movimentações</button>
     <button id="btn-undo" class="btn ghost sm" disabled>↩ Desfazer aporte</button>
     <button id="btn-apply" class="btn primary sm" disabled>✓ Aplicar rebalanceamento</button>
   </div>
 
   <footer class="mini">
-    <span class="pill" id="enginecheck">engine: verificando…</span>
     <span>Cálculo: <i>Optimal lazy rebalancing</i> · dados cifrados localmente</span>
   </footer>
 </div>
@@ -899,8 +896,6 @@ function recalc(){
       else { amt.className="amt sell"; amt.innerHTML=`${fmtBRL(-r.amount)}<small>vender</small>`; }
     }
   });
-  // engine check pill (validação)
-  if(window.__engineOK!=null){ const p=$("enginecheck"); p.textContent="engine "+(window.__engineOK?"validado ✓":"⚠ ver console"); if(window.__engineOK) p.classList.add("good"); }
   // btn-apply / btn-undo / btn-order state
   const applyBtn=$("btn-apply"); if(applyBtn){ const hasFlow=Math.abs(state.cashFlow)>0.005; applyBtn.disabled=!hasFlow; applyBtn.textContent=hasFlow?(R.direction==="sell"?"✓ Confirmar resgate":"✓ Confirmar aporte"):"✓ Aplicar rebalanceamento"; }
   const undoBtn=$("btn-undo"); if(undoBtn){ undoBtn.disabled=!lastApplySnapshot; }
@@ -956,7 +951,6 @@ $("flow").addEventListener("blur", e=>{
   recalc();
 });
 $("addrow").onclick=()=>{ state.assets.push({id:uid(),name:"",account:"",targetPct:"",current:"",minMove:"",tags:[]}); markDirty(true); fullRender(); };
-$("loadexample").onclick=()=>{ if(state.assets.length && !confirm("Substituir os ativos atuais pelo exemplo da planilha?")) return; loadExample(); markDirty(true); fullRender(); };
 $("clearfilter").onclick=()=>{ activeFilters.clear(); fullRender(); };
 
 /* ============================================================
@@ -1206,9 +1200,6 @@ async function unlock(){
 }
 
 /* SETUP */
-let setupSeed="empty";
-$("s-empty").onclick=()=>{ setupSeed="empty"; $("s-empty").classList.add("on"); $("s-example").classList.remove("on"); };
-$("s-example").onclick=()=>{ setupSeed="example"; $("s-example").classList.add("on"); $("s-empty").classList.remove("on"); };
 $("s-go").onclick=createVault;
 async function createVault(){
   const p=$("s-pass").value, p2=$("s-pass2").value, tok=$("s-token").value.trim(); const msg=$("s-msg"); msg.className="gate-msg";
@@ -1220,7 +1211,7 @@ async function createVault(){
     const salt=crypto.getRandomValues(new Uint8Array(16));
     const key=await deriveKey(p, salt);
     session.key=key; session.salt=salt; session.token=tok;
-    state = setupSeed==="example" ? exampleState() : {assets:[],cashFlow:0};
+    state = {assets:[],cashFlow:0,history:[]};
     const file=await encryptObj(key, salt, packFile());
     session.sha=await ghPut(session.cfg, tok, file, null);
     session.fileExists=true;
@@ -1272,62 +1263,6 @@ initColDragHeaders();
    ============================================================ */
 let toastT;
 function toast(t,kind){ const e=$("toast"); e.textContent=t; e.className="toast show"+(kind==="err"?" err":""); clearTimeout(toastT); toastT=setTimeout(()=>e.className="toast"+(kind==="err"?" err":""),2600); }
-
-/* ============================================================
-   EXEMPLO (estrutura real da planilha; valores são editáveis)
-   ============================================================ */
-function exampleState(){ return { cashFlow:7600, assets: EXAMPLE.map(a=>({id:uid(),...a})) }; }
-function loadExample(){ state=exampleState(); $("flow").value="7.600,00"; }
-const EXAMPLE=[
- {name:"RIZA LOTUS FI RF", account:"BTG · D+1", targetPct:10, current:24860.58, minMove:100, tags:["Brasil","Renda Fixa"]},
- {name:"WESTERN ASSET", account:"BTG · D+4", targetPct:6, current:16466.28, minMove:100, tags:["Brasil","Renda Fixa"]},
- {name:"MAG CASH 10", account:"BTG · D+10", targetPct:6, current:13040.54, minMove:100, tags:["Brasil","Renda Fixa"]},
- {name:"REAL INVESTOR FIC FIA BDR N I", account:"BTG · D+29", targetPct:5, current:12548.12, minMove:1000, tags:["Brasil","Ações"]},
- {name:"REAL INVESTOR FIC FIM", account:"BTG · D+30", targetPct:5, current:12244.74, minMove:1000, tags:["Brasil","Multimercado"]},
- {name:"TRIGONO FLAGSHIP", account:"BTG · D+62", targetPct:4, current:12615.16, minMove:100, tags:["Brasil","Ações"]},
- {name:"NIKOS DI PLUS REFERENCIADO", account:"BTG · D+0", targetPct:10, current:24876.61, minMove:1, tags:["Brasil","Renda Fixa"]},
- {name:"OURO PRETO REAL", account:"BTG · D+3", targetPct:6, current:14919.92, minMove:100, tags:["Brasil","Renda Fixa"]},
- {name:"NOVUS RF EXCLUSIVE", account:"BTG · D+4", targetPct:6, current:14899.03, minMove:100, tags:["Brasil","Renda Fixa"]},
- {name:"V8 SPEEDWAY LONG SHORT", account:"BTG · D+17", targetPct:6, current:14874.59, minMove:100, tags:["Brasil","Multimercado"]},
- {name:"CHARLES RIVER FIA", account:"BTG · D+32", targetPct:5, current:12062.22, minMove:1000, tags:["Brasil","Ações"]},
- {name:"ABSOLUTE HIDRA CDI PLUS", account:"BTG · D+46", targetPct:5, current:12615.87, minMove:1, tags:["Brasil","Renda Fixa"]},
- {name:"STOXOS FI FINANCEIRO", account:"BTG · D+122", targetPct:1, current:12615.16, minMove:1000, tags:["Brasil","Multimercado"]},
- {name:"LIBRA FIC FIM", account:"BTG · D+46", targetPct:4, current:9156.00, minMove:100, tags:["Brasil","Multimercado"]},
- {name:"AMT", account:"Avenue", targetPct:1, current:2548.59, minMove:100, tags:["Internacional","REIT"]},
- {name:"CRWD", account:"Avenue", targetPct:1, current:3703.83, minMove:100, tags:["Internacional","Ações"]},
- {name:"DLR", account:"Avenue", targetPct:1, current:2884.13, minMove:100, tags:["Internacional","REIT"]},
- {name:"FRT", account:"Avenue", targetPct:1, current:2624.25, minMove:100, tags:["Internacional","REIT"]},
- {name:"O", account:"Avenue", targetPct:1, current:2579.77, minMove:100, tags:["Internacional","REIT"]},
- {name:"STAG", account:"Avenue", targetPct:1, current:2715.19, minMove:100, tags:["Internacional","REIT"]},
- {name:"VICI", account:"Avenue", targetPct:1, current:2605.04, minMove:100, tags:["Internacional","REIT"]},
- {name:"ACWI", account:"Avenue", targetPct:1, current:3164.76, minMove:100, tags:["Internacional","ETF"]},
- {name:"KXI", account:"Avenue", targetPct:1, current:4241.54, minMove:100, tags:["Internacional","ETF"]},
- {name:"IVV", account:"Avenue", targetPct:1, current:7500.00, minMove:100, tags:["Internacional","ETF"]},
- {name:"Cripto", account:"Binance", targetPct:1, current:4241.54, minMove:100, tags:["Cripto"]},
- {name:"Reserva de emergência", account:"Itaú · D+0", targetPct:10, current:23013.79, minMove:100, tags:["Reserva"]}
-];
-
-/* ============================================================
-   SELF-TEST — valida o engine contra os números da planilha
-   (contribuição de 7.600 sem mínimo; tolerância R$2)
-   ============================================================ */
-(function selfTest(){
-  try{
-    const assets=EXAMPLE.map((a,i)=>({id:"t"+i, name:a.name, targetPct:a.targetPct, current:a.current, minMove:0, tags:[]}));
-    const save=state; state={assets,cashFlow:7600};
-    const R=computeRebalance(assets, 7600);
-    state=save;
-    const expect={ "MAG CASH 10":2090.65,"LIBRA FIC FIM":931.46,"Reserva de emergência":2204.86,"CHARLES RIVER FIA":547.10,
-      "REAL INVESTOR FIC FIM":364.58,"V8 SPEEDWAY LONG SHORT":256.60,"NOVUS RF EXCLUSIVE":232.16,"RIZA LOTUS FI RF":358.07,
-      "OURO PRETO REAL":211.27,"NIKOS DI PLUS REFERENCIADO":342.04,"REAL INVESTOR FIC FIA BDR N I":61.20 };
-    let ok=true, sum=0; const byName={}; assets.forEach(a=>byName[a.name]=a.id);
-    Object.keys(expect).forEach(n=>{ const got=R.result[byName[n]].amount; if(Math.abs(got-expect[n])>2){ ok=false; console.warn("FALHA",n,"esperado",expect[n],"obtido",got.toFixed(2)); } });
-    assets.forEach(a=> sum+=Math.max(0,R.result[a.id].amount));
-    if(Math.abs(sum-7600)>2){ ok=false; console.warn("Soma dos aportes",sum.toFixed(2),"≠ 7600"); }
-    window.__engineOK=ok;
-    console.log("%cCalcLazy self-test: "+(ok?"PASSOU ✓ (nível λ="+(R.level!=null?R.level.toFixed(5):"—")+")":"FALHOU ✗"),"color:"+(ok?"#2dd4bf":"#e5675f"));
-  }catch(e){ window.__engineOK=false; console.error("self-test erro",e); }
-})();
 
 init();
 </script>

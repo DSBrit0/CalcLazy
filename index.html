@@ -402,6 +402,13 @@ function parseNum(s){
   const v=parseFloat(t);
   return isFinite(v)?v:0;
 }
+function fmtFieldOnLoad(field, val){
+  if(val==null||val==="") return "";
+  const v=parseNum(val); if(!v) return "";
+  if(field==="targetPct") return v.toLocaleString("pt-BR",{maximumFractionDigits:4})+"%";
+  if(field==="current"||field==="minMove") return fmtBRL(v);
+  return ""+val;
+}
 
 /* ============================================================
    CRYPTO  (PBKDF2 + AES-GCM, Web Crypto)
@@ -645,9 +652,9 @@ function renderTable(){
     let _t;
     _t=tdInput(a.id,"account","banco · liquidez",a.account,"",("acct")); _t.dataset.col="account"; tr.appendChild(_t);
     _t=tagCell(a); _t.dataset.col="tags"; tr.appendChild(_t);
-    _t=tdInput(a.id,"targetPct","0",a.targetPct,"num",null,"r"); _t.dataset.col="targetPct"; tr.appendChild(_t);
-    _t=tdInput(a.id,"current","0,00",a.current,"num",null,"r"); _t.dataset.col="current"; tr.appendChild(_t);
-    _t=tdInput(a.id,"minMove","0",a.minMove,"num",null,"r"); _t.dataset.col="minMove"; tr.appendChild(_t);
+    _t=tdInput(a.id,"targetPct","0%",fmtFieldOnLoad("targetPct",a.targetPct),"num",null,"r"); _t.dataset.col="targetPct"; tr.appendChild(_t);
+    _t=tdInput(a.id,"current","R$ 0,00",fmtFieldOnLoad("current",a.current),"num",null,"r"); _t.dataset.col="current"; tr.appendChild(_t);
+    _t=tdInput(a.id,"minMove","R$ 0,00",fmtFieldOnLoad("minMove",a.minMove),"num",null,"r"); _t.dataset.col="minMove"; tr.appendChild(_t);
     _t=computedCell(`tv-${a.id}`,"r computed dim"); _t.dataset.col="tv"; tr.appendChild(_t);
     _t=devCell(a.id); _t.dataset.col="dev"; tr.appendChild(_t);
     _t=amtCell(a.id); _t.dataset.col="amount"; tr.appendChild(_t);
@@ -747,7 +754,38 @@ $("tbody").addEventListener("input", e=>{
   a[t.dataset.field]=t.value;
   markDirty(true); recalc();
 });
+const NUM_FIELDS=new Set(["targetPct","current","minMove"]);
+$("tbody").addEventListener("focusin", e=>{
+  const t=e.target; if(!t.dataset||!t.dataset.field) return;
+  const field=t.dataset.field; if(!NUM_FIELDS.has(field)) return;
+  const v=parseNum(t.value);
+  t.value = v ? (field==="targetPct"
+    ? v.toLocaleString("pt-BR",{maximumFractionDigits:4})
+    : v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})) : "";
+  requestAnimationFrame(()=>t.select());
+});
+$("tbody").addEventListener("focusout", e=>{
+  const t=e.target; if(!t.dataset||!t.dataset.field) return;
+  const a=assetById(t.dataset.id); if(!a) return;
+  const field=t.dataset.field; if(!NUM_FIELDS.has(field)) return;
+  const v=parseNum(t.value);
+  const fmt = v ? (field==="targetPct"
+    ? v.toLocaleString("pt-BR",{maximumFractionDigits:4})+"%"
+    : fmtBRL(v)) : "";
+  t.value=fmt; a[field]=fmt; recalc();
+});
 $("flow").addEventListener("input", e=>{ state.cashFlow=parseNum(e.target.value); markDirty(true); recalc(); });
+$("flow").addEventListener("focus", e=>{
+  const v=state.cashFlow;
+  e.target.value = v ? v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "";
+  requestAnimationFrame(()=>e.target.select());
+});
+$("flow").addEventListener("blur", e=>{
+  const v=parseNum(e.target.value);
+  state.cashFlow=v;
+  e.target.value = v ? fmtBRL(v) : "";
+  recalc();
+});
 $("addrow").onclick=()=>{ state.assets.push({id:uid(),name:"",account:"",targetPct:"",current:"",minMove:"",tags:[]}); markDirty(true); fullRender(); };
 $("loadexample").onclick=()=>{ if(state.assets.length && !confirm("Substituir os ativos atuais pelo exemplo da planilha?")) return; loadExample(); markDirty(true); fullRender(); };
 $("clearfilter").onclick=()=>{ activeFilters.clear(); fullRender(); };
@@ -775,7 +813,7 @@ window.addEventListener("beforeunload", e=>{ if(dirty && !session.offline){ e.pr
 function showGate(){ $("app").classList.add("hide"); $("gate").classList.remove("hide"); }
 function gatePane(id){ ["gate-connecting","gate-unlock","gate-setup","gate-offline"].forEach(p=>$(p).classList.toggle("hide",p!==id)); }
 function enterApp(){ $("gate").classList.add("hide"); $("app").classList.remove("hide");
-  $("flow").value = state.cashFlow ? state.cashFlow.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "";
+  $("flow").value = state.cashFlow ? fmtBRL(state.cashFlow) : "";
   $("offline-banner").classList.toggle("hide", !session.offline);
   $("btn-save").disabled=session.offline;
   fullRender(); session.unlocked=true; markDirty(false);

@@ -226,6 +226,11 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
 .asset-toggle.off{opacity:.3}
 .hist-empty{text-align:center;padding:44px 20px;color:var(--muted);font-size:14px;line-height:1.7}
 .hist-meta{font-size:11.5px;color:var(--faint);margin-top:10px;text-align:right}
+thead th[data-col]{cursor:grab;user-select:none}
+thead th[data-col]:active{cursor:grabbing}
+thead th[data-col].col-dragging{opacity:.35}
+thead th[data-col].col-drag-over-left{box-shadow:inset 3px 0 0 var(--teal)}
+thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
 
 @media (max-width:640px){
   .card .v{font-size:18px}
@@ -329,7 +334,7 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
       </tr></thead>
       <tbody id="tbody"></tbody>
       <tfoot><tr>
-        <td></td><td class="lbl">Totais</td><td data-col="account"></td><td data-col="cnpj"></td><td data-col="tags"></td>
+        <td></td><td class="lbl" data-col="name">Totais</td><td data-col="account"></td><td data-col="cnpj"></td><td data-col="tags"></td>
         <td class="r" data-col="targetPct" id="f-pct">—</td><td class="r" data-col="current" id="f-cur">—</td><td data-col="minMove"></td>
         <td class="r" data-col="tv" id="f-tv">—</td><td data-col="dev"></td><td class="r" data-col="amount" id="f-move">—</td><td class="r" data-col="finalPct" id="f-fin">100%</td><td></td>
       </tr></tfoot>
@@ -642,6 +647,23 @@ function computeRebalance(assets, cashFlow){
 function assetById(id){ return state.assets.find(a=>a.id===id)||{}; }
 
 /* ============================================================
+   COLUMN ORDER
+   ============================================================ */
+const COL_ORDER_DEFAULT=["name","account","cnpj","tags","targetPct","current","minMove","tv","dev","amount","finalPct"];
+function loadColOrder(){
+  try{ const s=localStorage.getItem("calclazy.colorder"); if(s){ const v=JSON.parse(s); if(Array.isArray(v)){ const ex=new Set(v); return [...v,...COL_ORDER_DEFAULT.filter(c=>!ex.has(c))]; } } }catch(e){}
+  return [...COL_ORDER_DEFAULT];
+}
+let colOrder=loadColOrder();
+function saveColOrder(){ try{ localStorage.setItem("calclazy.colorder",JSON.stringify(colOrder)); }catch(e){} }
+function applyColOrder(){
+  const reorderRow=(row,lastEl)=>{ colOrder.forEach(colId=>{ const cell=row.querySelector(`[data-col="${colId}"]`); if(cell) row.insertBefore(cell,lastEl); }); };
+  const theadRow=document.querySelector("thead tr"); if(theadRow) reorderRow(theadRow,theadRow.lastElementChild);
+  document.querySelectorAll("#tbody tr").forEach(tr=>reorderRow(tr,tr.lastElementChild));
+  const tfootRow=document.querySelector("tfoot tr"); if(tfootRow) reorderRow(tfootRow,tfootRow.lastElementChild);
+}
+
+/* ============================================================
    COLUMN RESIZE
    ============================================================ */
 const COL_WIDTHS_DEFAULT = {name:160,account:115,cnpj:148,tags:155,targetPct:72,current:108,minMove:88,tv:108,dev:175,amount:140,finalPct:72};
@@ -651,6 +673,7 @@ function loadColWidths(){
 }
 let colWidths=loadColWidths();
 function saveColWidths(){ try{ localStorage.setItem("calclazy.colw",JSON.stringify(colWidths)); }catch(e){} }
+let colResizing=false;
 function applyColWidths(){
   const tbl=document.querySelector(".tablewrap table");
   if(!tbl) return;
@@ -673,15 +696,60 @@ function initColResize(){
     th.appendChild(h);
     h.addEventListener("mousedown",e=>{
       e.preventDefault(); e.stopPropagation();
+      colResizing=true;
       const x0=e.clientX, w0=th.offsetWidth;
       h.classList.add("active");
       const onMove=ev=>{
         const w=Math.max(50,w0+ev.clientX-x0);
         th.style.width=w+"px"; colWidths[id]=w; applyColWidths();
       };
-      const onUp=()=>{ h.classList.remove("active"); saveColWidths(); document.removeEventListener("mousemove",onMove); document.removeEventListener("mouseup",onUp); };
+      const onUp=()=>{ colResizing=false; h.classList.remove("active"); saveColWidths(); document.removeEventListener("mousemove",onMove); document.removeEventListener("mouseup",onUp); };
       document.addEventListener("mousemove",onMove);
       document.addEventListener("mouseup",onUp);
+    });
+  });
+}
+
+let colDragSrc=null;
+function initColDragHeaders(){
+  document.querySelectorAll("thead th[data-col]").forEach(th=>{
+    const colId=th.dataset.col;
+    th.draggable=true;
+    th.addEventListener("dragstart",e=>{
+      if(colResizing){ e.preventDefault(); return; }
+      colDragSrc=colId;
+      th.classList.add("col-dragging");
+      e.dataTransfer.effectAllowed="move";
+      e.dataTransfer.setData("text/plain",colId);
+    });
+    th.addEventListener("dragend",()=>{
+      th.classList.remove("col-dragging");
+      document.querySelectorAll("thead th.col-drag-over-left,thead th.col-drag-over-right").forEach(t=>t.classList.remove("col-drag-over-left","col-drag-over-right"));
+      colDragSrc=null;
+    });
+    th.addEventListener("dragover",e=>{
+      if(!colDragSrc||colDragSrc===colId) return;
+      e.preventDefault();
+      document.querySelectorAll("thead th.col-drag-over-left,thead th.col-drag-over-right").forEach(t=>t.classList.remove("col-drag-over-left","col-drag-over-right"));
+      const rect=th.getBoundingClientRect(); const mid=rect.left+rect.width/2;
+      th.classList.add(e.clientX<mid?"col-drag-over-left":"col-drag-over-right");
+    });
+    th.addEventListener("dragleave",e=>{
+      if(!th.contains(e.relatedTarget)) th.classList.remove("col-drag-over-left","col-drag-over-right");
+    });
+    th.addEventListener("drop",e=>{
+      e.preventDefault();
+      th.classList.remove("col-drag-over-left","col-drag-over-right");
+      if(!colDragSrc||colDragSrc===colId) return;
+      const rect=th.getBoundingClientRect(); const mid=rect.left+rect.width/2;
+      const before=e.clientX<mid;
+      const si=colOrder.indexOf(colDragSrc), di=colOrder.indexOf(colId);
+      if(si<0||di<0) return;
+      colOrder.splice(si,1);
+      const newDi=colOrder.indexOf(colId);
+      colOrder.splice(before?newDi:newDi+1,0,colDragSrc);
+      saveColOrder();
+      applyColOrder();
     });
   });
 }
@@ -699,6 +767,7 @@ function fullRender(){
   renderTags();
   renderTable();
   applyColVisibility();
+  applyColOrder();
   recalc();
   markDirty(dirty);
 }
@@ -733,7 +802,7 @@ function renderTable(){
     tr.addEventListener("dragleave", e=>{ if(!tr.contains(e.relatedTarget)) tr.classList.remove("drag-over-top"); });
     tr.addEventListener("drop", e=>{ e.preventDefault(); tr.classList.remove("drag-over-top"); if(!dragSrcId||dragSrcId===a.id) return; const si=state.assets.findIndex(x=>x.id===dragSrcId), di=state.assets.findIndex(x=>x.id===a.id); if(si<0||di<0) return; const [mv]=state.assets.splice(si,1); state.assets.splice(di,0,mv); markDirty(true); fullRender(); });
     tr.appendChild(grip);
-    tr.appendChild(tdInput(a.id,"name","Nome do ativo",a.name,"name"));
+    const nameTd=tdInput(a.id,"name","Nome do ativo",a.name,"name"); nameTd.dataset.col="name"; tr.appendChild(nameTd);
     let _t;
     _t=tdInput(a.id,"account","banco · liquidez",a.account,"",("acct")); _t.dataset.col="account"; tr.appendChild(_t);
     _t=tdInput(a.id,"cnpj","00.000.000/0000-00",fmtCNPJ(a.cnpj),""); _t.dataset.col="cnpj"; tr.appendChild(_t);
@@ -1196,6 +1265,7 @@ $("o-retry").onclick=init;
 $("colpicker-btn").addEventListener("click", e=>{ e.stopPropagation(); $("colpicker").classList.toggle("hide"); });
 document.addEventListener("click", ()=>$("colpicker").classList.add("hide"));
 initColResize();
+initColDragHeaders();
 
 /* ============================================================
    TOAST

@@ -239,17 +239,20 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
 <!-- ============ LOCK / SETUP / OFFLINE GATE ============ -->
 <div id="gate" class="gate">
   <div class="gate-card">
-    <div class="brand"><div class="logo"></div><div><h1>CalcLazy</h1><div class="sub">Rebalanceamento lazy · privado</div></div></div>
+    <div class="brand"><div class="logo"></div><div><h1>CalcLazy</h1></div></div>
 
     <div id="gate-connecting">
-      <p class="gate-lead">Conectando ao repositório…</p>
+      <p class="gate-lead" id="conn-lead">Conectando ao repositório…</p>
+      <div id="conn-err" class="hide">
+        <p class="gate-msg err" id="conn-err-msg"></p>
+        <div class="btn-row" style="margin-top:12px"><button id="o-retry" class="btn">Tentar de novo</button></div>
+      </div>
     </div>
 
     <!-- UNLOCK -->
     <div id="gate-unlock" class="hide">
-      <p class="gate-lead">Carteira encontrada. Digite sua senha para decifrar os dados.</p>
       <label class="fld"><span>Senha</span><input id="u-pass" class="txt" type="password" autocomplete="current-password" placeholder="••••••••"></label>
-      <div class="btn-row"><button id="u-go" class="btn primary">Desbloquear</button><button class="btn ghost" data-offline>Usar offline</button></div>
+      <div class="btn-row"><button id="u-go" class="btn primary">Desbloquear</button></div>
       <div id="u-msg" class="gate-msg"></div>
     </div>
 
@@ -260,16 +263,9 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
       <label class="fld"><span>Confirmar senha</span><input id="s-pass2" class="txt" type="password" autocomplete="new-password"></label>
       <label class="fld"><span>Token do GitHub (PAT fine‑grained, Contents: read & write)</span><input id="s-token" class="txt" type="password" placeholder="github_pat_..."></label>
       <div class="tabs"><button id="s-empty" class="on">Começar vazio</button><button id="s-example">Carregar exemplo</button></div>
-      <div class="btn-row"><button id="s-go" class="btn primary">Criar e salvar</button><button class="btn ghost" data-offline>Usar offline</button></div>
+      <div class="btn-row"><button id="s-go" class="btn primary">Criar e salvar</button></div>
       <div id="s-msg" class="gate-msg"></div>
       <p class="note"><b>Importante:</b> guarde a senha — ela é a única chave dos seus dados e do token. O token fica cifrado dentro do arquivo, então em outro computador basta a senha.</p>
-    </div>
-
-    <!-- OFFLINE / ERROR -->
-    <div id="gate-offline" class="hide">
-      <div class="banner"><span>⚠︎</span><span id="off-text">Não foi possível falar com o GitHub a partir deste ambiente. A sincronização funciona quando o app está hospedado no GitHub Pages.</span></div>
-      <div class="btn-row"><button id="o-retry" class="btn">Tentar de novo</button><button class="btn primary" data-offline>Usar offline (sem salvar)</button></div>
-      <p class="note">No modo offline você usa a calculadora normalmente, mas nada é gravado no GitHub.</p>
     </div>
   </div>
 </div>
@@ -286,7 +282,6 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
     </div>
   </div>
 
-  <div id="offline-banner" class="banner hide"><span>⚠︎</span><span>Modo offline — alterações não são salvas no GitHub.</span></div>
 
   <details class="how">
     <summary>▸ Como o cálculo funciona</summary>
@@ -428,7 +423,7 @@ function loadCfg(){
 }
 function saveCfg(c){ try{ localStorage.setItem("calclazy.cfg", JSON.stringify(c)); }catch(e){} }
 
-const session = { cfg:loadCfg(), key:null, salt:null, token:null, sha:null, fileExists:false, offline:false, unlocked:false };
+const session = { cfg:loadCfg(), key:null, salt:null, token:null, sha:null, fileExists:false, unlocked:false };
 let state = { assets:[], cashFlow:0, history:[] };
 let activeFilters = new Set();
 let dirty = false;
@@ -846,7 +841,7 @@ function recalc(){
 /* ============================================================
    STATE EVENTS
    ============================================================ */
-function markDirty(d){ dirty=d; if(session.offline){ setSync("off","offline"); return;} setSync(d?"dirty":"ok", d?"alterações não salvas":"sincronizado"); }
+function markDirty(d){ dirty=d; setSync(d?"dirty":"ok", d?"alterações não salvas":"sincronizado"); }
 function setSync(cls,txt){ $("syncdot").className="dot "+cls; $("synctext").textContent=txt; }
 
 $("tbody").addEventListener("input", e=>{
@@ -900,7 +895,6 @@ $("clearfilter").onclick=()=>{ activeFilters.clear(); fullRender(); };
    ============================================================ */
 function packFile(){ return { app:"CalcLazy", v:1, savedAt:new Date().toISOString(), state, github:{ token: session.token } }; }
 async function doSave(){
-  if(session.offline){ toast("Modo offline — sem sincronização","err"); return; }
   if(!session.key||!session.token){ toast("Sem chave/token nesta sessão","err"); return; }
   try{
     setSync("busy","salvando…");
@@ -1114,22 +1108,15 @@ $("btn-snapshot").onclick=()=>{
 $("btn-apply").onclick=applyRebalance;
 $("btn-undo").onclick=undoRebalance;
 $("btn-lock").onclick=()=>{ if(dirty && !confirm("Há alterações não salvas. Bloquear mesmo assim?")) return; session.key=null; session.token=null; session.unlocked=false; showGate(); init(); };
-window.addEventListener("beforeunload", e=>{ if(dirty && !session.offline){ e.preventDefault(); e.returnValue=""; } });
+window.addEventListener("beforeunload", e=>{ if(dirty){ e.preventDefault(); e.returnValue=""; } });
 
 /* gate visibility helpers */
 function showGate(){ $("app").classList.add("hide"); $("gate").classList.remove("hide"); }
-function gatePane(id){ ["gate-connecting","gate-unlock","gate-setup","gate-offline"].forEach(p=>$(p).classList.toggle("hide",p!==id)); }
+function gatePane(id){ ["gate-connecting","gate-unlock","gate-setup"].forEach(p=>$(p).classList.toggle("hide",p!==id)); }
 function enterApp(){ $("gate").classList.add("hide"); $("app").classList.remove("hide");
   $("flow").value = state.cashFlow ? fmtBRL(state.cashFlow) : "";
-  $("offline-banner").classList.toggle("hide", !session.offline);
-  $("btn-save").disabled=session.offline;
   fullRender(); session.unlocked=true; markDirty(false);
 }
-
-document.querySelectorAll("[data-offline]").forEach(b=> b.onclick=()=>{
-  session.offline=true; if(!state.assets.length) loadExample();
-  enterApp();
-});
 
 /* UNLOCK */
 $("u-go").onclick=unlock;
@@ -1159,7 +1146,7 @@ async function createVault(){
   const p=$("s-pass").value, p2=$("s-pass2").value, tok=$("s-token").value.trim(); const msg=$("s-msg"); msg.className="gate-msg";
   if(p.length<8){ msg.classList.add("err"); msg.textContent="A senha precisa de ao menos 8 caracteres."; return; }
   if(p!==p2){ msg.classList.add("err"); msg.textContent="As senhas não conferem."; return; }
-  if(!tok){ msg.classList.add("err"); msg.textContent="Cole o token do GitHub (ou use o modo offline)."; return; }
+  if(!tok){ msg.classList.add("err"); msg.textContent="Cole o token do GitHub."; return; }
   try{
     msg.textContent="Criando e enviando…";
     const salt=crypto.getRandomValues(new Uint8Array(16));
@@ -1180,6 +1167,8 @@ $("cfg-save").onclick=()=>{ session.cfg={owner:$("cfg-owner").value.trim(),repo:
 
 /* INIT */
 async function init(){
+  $("conn-lead").textContent="Conectando ao repositório…";
+  $("conn-err").classList.add("hide");
   gatePane("gate-connecting"); showGate();
   try{
     const res=await ghGet(session.cfg);
@@ -1187,8 +1176,9 @@ async function init(){
     else { session.fileExists=false; gatePane("gate-setup"); }
   }catch(err){
     console.warn("GitHub indisponível:",err.message);
-    $("off-text").textContent="Não foi possível falar com o GitHub ("+err.message+"). A sincronização funciona quando o app está hospedado no GitHub Pages. Verifique também usuário/repo em ‘Repositório’.";
-    gatePane("gate-offline");
+    $("conn-lead").textContent="Não foi possível conectar ao GitHub.";
+    $("conn-err-msg").textContent=(err.message||"Erro de conexão.")+" Verifique usuário/repo em ‘Repositório’.";
+    $("conn-err").classList.remove("hide");
   }
 }
 $("o-retry").onclick=init;

@@ -758,12 +758,18 @@ function recalc(){
   if(R.leftover>0.005){ lc.classList.remove("hide"); $("s-left").textContent=fmtBRL(R.leftover);
     $("s-leftk").textContent = R.direction==="sell" ? "Não resgatado" : "Não aplicado"; }
   else lc.classList.add("hide");
-  // footer
-  $("f-pct").textContent=fmtPct(R.sumPct, (R.sumPct%1===0?0:2));
-  $("f-cur").textContent=fmtBRL(R.totalCurrent);
-  $("f-tv").textContent=fmtBRL(state.assets.reduce((s,a)=>s+R.result[a.id].tv,0));
-  $("f-move").textContent=(R.direction==="sell"?"−":R.direction==="buy"?"+":"")+fmtBRL(R.move);
-  $("f-move").style.color = R.direction==="buy"?"var(--teal)":R.direction==="sell"?"var(--amber)":"";
+  // footer — soma apenas ativos visíveis (respeita filtro de tags)
+  const vis=state.assets.filter(rowVisible);
+  const fPct=vis.reduce((s,a)=>s+parseNum(a.targetPct),0);
+  const fCur=vis.reduce((s,a)=>s+parseNum(a.current),0);
+  const fTv=vis.reduce((s,a)=>s+(R.result[a.id]?.tv||0),0);
+  const fNetAmt=vis.reduce((s,a)=>s+(R.result[a.id]?.amount||0),0);
+  const fDir=fNetAmt>0.005?"buy":fNetAmt<-0.005?"sell":"";
+  $("f-pct").textContent=fmtPct(fPct,(fPct%1===0?0:2));
+  $("f-cur").textContent=fmtBRL(fCur);
+  $("f-tv").textContent=fmtBRL(fTv);
+  $("f-move").textContent=(fDir==="sell"?"−":fDir==="buy"?"+":"")+fmtBRL(Math.abs(fNetAmt));
+  $("f-move").style.color=fDir==="buy"?"var(--teal)":fDir==="sell"?"var(--amber)":"";
 
   const MAXABS=0.30;
   const pos=d=>50+Math.max(-1,Math.min(1,d/MAXABS))*50;

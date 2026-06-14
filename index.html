@@ -922,7 +922,6 @@ function applyRebalance(){
     a.current=fmtBRL(parseNum(a.current)+r.amount);
   });
   state.cashFlow=0;
-  recordSnapshot("apply");
   markDirty(true);
   fullRender();
   $("flow").value="";

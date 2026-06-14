@@ -313,6 +313,7 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
   <div class="addrow">
     <button id="addrow" class="btn sm">+ Adicionar ativo</button>
     <button id="loadexample" class="btn ghost sm">Carregar exemplo da planilha</button>
+    <button id="btn-apply" class="btn primary sm" disabled style="margin-left:auto">✓ Aplicar rebalanceamento</button>
   </div>
 
   <footer class="mini">
@@ -740,6 +741,8 @@ function recalc(){
   });
   // engine check pill (validação)
   if(window.__engineOK!=null){ const p=$("enginecheck"); p.textContent="engine "+(window.__engineOK?"validado ✓":"⚠ ver console"); if(window.__engineOK) p.classList.add("good"); }
+  // btn-apply state
+  const applyBtn=$("btn-apply"); if(applyBtn){ const hasFlow=Math.abs(state.cashFlow)>0.005; applyBtn.disabled=!hasFlow; applyBtn.textContent=hasFlow?(R.direction==="sell"?"✓ Confirmar resgate":"✓ Confirmar aporte"):"✓ Aplicar rebalanceamento"; }
 }
 
 /* ============================================================
@@ -806,6 +809,30 @@ async function doSave(){
   }catch(err){ console.error(err); setSync("dirty","falha ao salvar"); toast(err.message||"Erro ao salvar","err"); }
 }
 $("btn-save").onclick=doSave;
+function applyRebalance(){
+  if(Math.abs(state.cashFlow)<0.005) return;
+  // Snapshot ANTES de qualquer mutação — garante que o lazy não é chamado com estado intermediário
+  const R=computeRebalance(state.assets, state.cashFlow);
+  const dir=R.direction==="sell"?"resgate":"aporte";
+  const msg=`Aplicar ${dir} de ${fmtBRL(Math.abs(state.cashFlow))} à carteira?\n\n`
+    +`Isso irá somar/subtrair os valores de "Comprar/Vender" a cada ativo.`
+    +(R.leftover>0.005?`\n\nAtenção: ${fmtBRL(R.leftover)} não foram alocados (mínimo de movimentação). Esse valor será descartado.`:"")
+    +`\n\nEssa ação não pode ser desfeita.`;
+  if(!confirm(msg)) return;
+  // Aplica todos os amounts em batch com o snapshot já capturado
+  state.assets.forEach(a=>{
+    const r=R.result[a.id];
+    if(!r||Math.abs(r.amount)<0.005) return;
+    a.current=fmtBRL(parseNum(a.current)+r.amount);
+  });
+  // Zera aporte/resgate por último
+  state.cashFlow=0;
+  markDirty(true);
+  fullRender();
+  $("flow").value="";
+  toast("Rebalanceamento aplicado à carteira");
+}
+$("btn-apply").onclick=applyRebalance;
 $("btn-lock").onclick=()=>{ if(dirty && !confirm("Há alterações não salvas. Bloquear mesmo assim?")) return; session.key=null; session.token=null; session.unlocked=false; showGate(); init(); };
 window.addEventListener("beforeunload", e=>{ if(dirty && !session.offline){ e.preventDefault(); e.returnValue=""; } });
 

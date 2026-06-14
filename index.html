@@ -158,6 +158,12 @@ td.r{text-align:right}
 .drag-handle:hover{color:var(--muted)}
 tr.drag-over-top td{box-shadow:inset 0 2px 0 var(--teal)}
 tr.dragging{opacity:.4}
+/* column picker */
+.colpicker{position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:6px;min-width:190px;box-shadow:0 16px 40px -16px #000;z-index:30}
+.colpicker label{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:7px;font-size:13px;cursor:pointer;user-select:none}
+.colpicker label:hover{background:var(--surface-2)}
+.colpicker input[type=checkbox]{accent-color:var(--teal);width:14px;height:14px;flex:none;cursor:pointer}
+.col-hidden{display:none!important}
 .acct .cellinput{font-size:12px;color:var(--muted)}
 tfoot td{padding:12px;border-top:2px solid var(--line);font-family:var(--mono);font-weight:600;background:var(--surface-2)}
 tfoot .lbl{font-family:var(--sans);text-transform:uppercase;letter-spacing:.4px;font-size:11px;color:var(--muted)}
@@ -276,21 +282,25 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
     <h2>Tags</h2>
     <div id="tagchips" class="chips"></div>
     <div class="spacer"></div>
+    <div style="position:relative">
+      <button id="colpicker-btn" class="btn ghost sm">Colunas ▾</button>
+      <div id="colpicker" class="colpicker hide"></div>
+    </div>
     <button id="clearfilter" class="btn ghost sm hide">Limpar filtro</button>
   </div>
 
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th class="drag-col"></th><th>Ativo</th><th>Conta</th><th class="tagcell">Tags</th>
-        <th class="r">Alvo %</th><th class="r">Atual R$</th><th class="r">Mín. mov.</th>
-        <th class="r">Alvo R$</th><th>Desvio</th><th class="r">Comprar / Vender</th><th class="r">Final %</th><th></th>
+        <th class="drag-col"></th><th>Ativo</th><th data-col="account">Conta</th><th class="tagcell" data-col="tags">Tags</th>
+        <th class="r" data-col="targetPct">Alvo %</th><th class="r" data-col="current">Atual R$</th><th class="r" data-col="minMove">Mín. mov.</th>
+        <th class="r" data-col="tv">Alvo R$</th><th data-col="dev">Desvio</th><th class="r" data-col="amount">Comprar / Vender</th><th class="r" data-col="finalPct">Final %</th><th></th>
       </tr></thead>
       <tbody id="tbody"></tbody>
       <tfoot><tr>
-        <td></td><td class="lbl">Totais</td><td></td><td></td>
-        <td class="r" id="f-pct">—</td><td class="r" id="f-cur">—</td><td></td>
-        <td class="r" id="f-tv">—</td><td></td><td class="r" id="f-move">—</td><td class="r" id="f-fin">100%</td><td></td>
+        <td></td><td class="lbl">Totais</td><td data-col="account"></td><td data-col="tags"></td>
+        <td class="r" data-col="targetPct" id="f-pct">—</td><td class="r" data-col="current" id="f-cur">—</td><td data-col="minMove"></td>
+        <td class="r" data-col="tv" id="f-tv">—</td><td data-col="dev"></td><td class="r" data-col="amount" id="f-move">—</td><td class="r" data-col="finalPct" id="f-fin">100%</td><td></td>
       </tr></tfoot>
     </table>
   </div>
@@ -339,6 +349,33 @@ let state = { assets:[], cashFlow:0 };
 let activeFilters = new Set();
 let dirty = false;
 let dragSrcId = null;
+
+/* ============================================================
+   COLUMN VISIBILITY
+   ============================================================ */
+const COLS = [
+  { id:"account",   label:"Conta" },
+  { id:"tags",      label:"Tags" },
+  { id:"targetPct", label:"Alvo %" },
+  { id:"current",   label:"Atual R$" },
+  { id:"minMove",   label:"Mín. mov." },
+  { id:"tv",        label:"Alvo R$" },
+  { id:"dev",       label:"Desvio" },
+  { id:"amount",    label:"Comprar / Vender" },
+  { id:"finalPct",  label:"Final %" },
+];
+function loadVisibleCols(){
+  try{ const s=localStorage.getItem("calclazy.cols"); if(s){ const v=JSON.parse(s); if(Array.isArray(v)) return new Set(v); } }catch(e){}
+  return new Set(COLS.map(c=>c.id));
+}
+let visibleCols=loadVisibleCols();
+function saveVisibleCols(){ try{ localStorage.setItem("calclazy.cols",JSON.stringify([...visibleCols])); }catch(e){} }
+function applyColVisibility(){
+  COLS.forEach(c=>{
+    const hidden=!visibleCols.has(c.id);
+    document.querySelectorAll(`[data-col="${c.id}"]`).forEach(e=>e.classList.toggle("col-hidden",hidden));
+  });
+}
 
 /* ============================================================
    FORMAT / PARSE (pt-BR)
@@ -518,6 +555,7 @@ function allTags(){ const s=new Set(); state.assets.forEach(a=>(a.tags||[]).forE
 function fullRender(){
   renderTags();
   renderTable();
+  applyColVisibility();
   recalc();
   markDirty(dirty);
 }
@@ -553,15 +591,16 @@ function renderTable(){
     tr.addEventListener("drop", e=>{ e.preventDefault(); tr.classList.remove("drag-over-top"); if(!dragSrcId||dragSrcId===a.id) return; const si=state.assets.findIndex(x=>x.id===dragSrcId), di=state.assets.findIndex(x=>x.id===a.id); if(si<0||di<0) return; const [mv]=state.assets.splice(si,1); state.assets.splice(di,0,mv); markDirty(true); fullRender(); });
     tr.appendChild(grip);
     tr.appendChild(tdInput(a.id,"name","Nome do ativo",a.name,"name"));
-    tr.appendChild(tdInput(a.id,"account","banco · liquidez",a.account,"",("acct")));
-    tr.appendChild(tagCell(a));
-    tr.appendChild(tdInput(a.id,"targetPct","0",a.targetPct,"num",null,"r"));
-    tr.appendChild(tdInput(a.id,"current","0,00",a.current,"num",null,"r"));
-    tr.appendChild(tdInput(a.id,"minMove","0",a.minMove,"num",null,"r"));
-    tr.appendChild(computedCell(`tv-${a.id}`,"r computed dim"));
-    tr.appendChild(devCell(a.id));
-    tr.appendChild(amtCell(a.id));
-    tr.appendChild(computedCell(`fin-${a.id}`,"r computed dim"));
+    let _t;
+    _t=tdInput(a.id,"account","banco · liquidez",a.account,"",("acct")); _t.dataset.col="account"; tr.appendChild(_t);
+    _t=tagCell(a); _t.dataset.col="tags"; tr.appendChild(_t);
+    _t=tdInput(a.id,"targetPct","0",a.targetPct,"num",null,"r"); _t.dataset.col="targetPct"; tr.appendChild(_t);
+    _t=tdInput(a.id,"current","0,00",a.current,"num",null,"r"); _t.dataset.col="current"; tr.appendChild(_t);
+    _t=tdInput(a.id,"minMove","0",a.minMove,"num",null,"r"); _t.dataset.col="minMove"; tr.appendChild(_t);
+    _t=computedCell(`tv-${a.id}`,"r computed dim"); _t.dataset.col="tv"; tr.appendChild(_t);
+    _t=devCell(a.id); _t.dataset.col="dev"; tr.appendChild(_t);
+    _t=amtCell(a.id); _t.dataset.col="amount"; tr.appendChild(_t);
+    _t=computedCell(`fin-${a.id}`,"r computed dim"); _t.dataset.col="finalPct"; tr.appendChild(_t);
     const del=el("td","r"); const b=el("button","rowdel","×"); b.title="Remover"; b.onclick=()=>{ state.assets=state.assets.filter(x=>x.id!==a.id); markDirty(true); fullRender(); }; del.appendChild(b);
     tr.appendChild(del);
     tb.appendChild(tr);
@@ -756,6 +795,20 @@ async function init(){
   }
 }
 $("o-retry").onclick=init;
+
+/* ---- column picker ---- */
+(function initColPicker(){
+  const panel=$("colpicker");
+  COLS.forEach(c=>{
+    const lbl=document.createElement("label");
+    const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=visibleCols.has(c.id);
+    cb.addEventListener("change",()=>{ if(cb.checked) visibleCols.add(c.id); else visibleCols.delete(c.id); saveVisibleCols(); applyColVisibility(); });
+    lbl.appendChild(cb); lbl.appendChild(document.createTextNode(" "+c.label));
+    panel.appendChild(lbl);
+  });
+})();
+$("colpicker-btn").addEventListener("click", e=>{ e.stopPropagation(); $("colpicker").classList.toggle("hide"); });
+document.addEventListener("click", ()=>$("colpicker").classList.add("hide"));
 
 /* ============================================================
    TOAST

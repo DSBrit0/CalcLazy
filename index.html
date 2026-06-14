@@ -196,6 +196,22 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
 .modal h3{margin:0 0 4px;font-size:17px}
 .modal p{color:var(--muted);font-size:13px;margin:0 0 16px}
 .banner{background:#241a10;border:1px solid #f0a04b55;color:var(--amber);border-radius:var(--radius-sm);padding:10px 14px;font-size:12.5px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start}
+/* order modal */
+.order-modal{width:min(580px,100%)}
+.order-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.order-head h3{margin:0}
+.order-close-x{background:none;border:none;color:var(--muted);font-size:20px;line-height:1;padding:2px 6px;border-radius:6px;cursor:pointer}
+.order-close-x:hover{color:var(--ink);background:var(--surface-2)}
+.order-items{max-height:360px;overflow-y:auto;margin:12px -4px 16px}
+.order-item{display:grid;grid-template-columns:150px 1fr auto;gap:10px;padding:9px 12px;border-radius:9px;align-items:center}
+.order-item:hover{background:var(--surface-2)}
+.oi-cnpj{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.oi-name{font-size:13.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oi-val{font-family:var(--mono);font-weight:600;font-size:13.5px;white-space:nowrap}
+.oi-buy .oi-val{color:var(--teal)}
+.oi-sell .oi-val{color:var(--danger)}
+.order-empty{color:var(--muted);font-size:13px;padding:16px 12px}
+.order-summary{font-size:12px;color:var(--muted);margin-bottom:0;border-top:1px solid var(--line);padding-top:10px}
 
 @media (max-width:640px){
   .card .v{font-size:18px}
@@ -313,7 +329,8 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
   <div class="addrow">
     <button id="addrow" class="btn sm">+ Adicionar ativo</button>
     <button id="loadexample" class="btn ghost sm">Carregar exemplo da planilha</button>
-    <button id="btn-undo" class="btn ghost sm" disabled style="margin-left:auto">↩ Desfazer aporte</button>
+    <button id="btn-order" class="btn ghost sm" disabled style="margin-left:auto">⊞ Ver movimentações</button>
+    <button id="btn-undo" class="btn ghost sm" disabled>↩ Desfazer aporte</button>
     <button id="btn-apply" class="btn primary sm" disabled>✓ Aplicar rebalanceamento</button>
   </div>
 
@@ -321,6 +338,22 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
     <span class="pill" id="enginecheck">engine: verificando…</span>
     <span>Cálculo: <i>Optimal lazy rebalancing</i> · dados cifrados localmente</span>
   </footer>
+</div>
+
+<!-- order modal -->
+<div id="order-modal" class="modal-bg hide">
+  <div class="modal order-modal">
+    <div class="order-head">
+      <h3>Ordem de movimentação</h3>
+      <button class="order-close-x" id="order-close-x" title="Fechar">×</button>
+    </div>
+    <p id="order-subtitle">Ativos com movimentação calculada para o aporte/resgate atual.</p>
+    <div id="order-list" class="order-items"></div>
+    <div class="btn-row">
+      <button id="order-copy" class="btn primary">Copiar lista</button>
+      <button id="order-close" class="btn ghost">Fechar</button>
+    </div>
+  </div>
 </div>
 
 <!-- config modal -->
@@ -754,9 +787,10 @@ function recalc(){
   });
   // engine check pill (validação)
   if(window.__engineOK!=null){ const p=$("enginecheck"); p.textContent="engine "+(window.__engineOK?"validado ✓":"⚠ ver console"); if(window.__engineOK) p.classList.add("good"); }
-  // btn-apply / btn-undo state
+  // btn-apply / btn-undo / btn-order state
   const applyBtn=$("btn-apply"); if(applyBtn){ const hasFlow=Math.abs(state.cashFlow)>0.005; applyBtn.disabled=!hasFlow; applyBtn.textContent=hasFlow?(R.direction==="sell"?"✓ Confirmar resgate":"✓ Confirmar aporte"):"✓ Aplicar rebalanceamento"; }
   const undoBtn=$("btn-undo"); if(undoBtn){ undoBtn.disabled=!lastApplySnapshot; }
+  const orderBtn=$("btn-order"); if(orderBtn){ const hasMovements=Object.values(R.result).some(r=>Math.abs(r.amount)>0.005); orderBtn.disabled=!hasMovements; }
 }
 
 /* ============================================================
@@ -860,6 +894,44 @@ function undoRebalance(){
   $("flow").value=state.cashFlow ? fmtBRL(state.cashFlow) : "";
   toast("Rebalanceamento desfeito");
 }
+function openOrderModal(){
+  const R=computeRebalance(state.assets, state.cashFlow);
+  const items=state.assets
+    .map(a=>({ a, r:R.result[a.id] }))
+    .filter(({r})=>r&&Math.abs(r.amount)>0.005);
+
+  const list=$("order-list"); list.innerHTML="";
+  const dir=R.direction==="sell"?"resgate":"aporte";
+  $("order-subtitle").textContent=
+    `${items.length} ativo${items.length!==1?"s":""} com movimentação `
+    +`para ${dir} de ${fmtBRL(Math.abs(state.cashFlow))}.`
+    +(R.leftover>0.005?` Sobra não alocada: ${fmtBRL(R.leftover)}.`:"");
+
+  items.forEach(({a, r})=>{
+    const row=el("div","order-item "+(r.amount>0?"oi-buy":"oi-sell"));
+    const cnpjEl=el("span","oi-cnpj"); cnpjEl.textContent=a.cnpj||"—";
+    const nameEl=el("span","oi-name"); nameEl.textContent=a.name||"(sem nome)";
+    const valEl=el("span","oi-val");
+    valEl.textContent=(r.amount>0?"+":"-")+fmtBRL(Math.abs(r.amount));
+    row.appendChild(cnpjEl); row.appendChild(nameEl); row.appendChild(valEl);
+    list.appendChild(row);
+  });
+
+  $("order-modal").classList.remove("hide");
+
+  $("order-copy").onclick=()=>{
+    const text=items.map(({a,r})=>`${a.cnpj||"—"} - ${a.name||"(sem nome)"} - ${fmtBRL(Math.abs(r.amount))}`).join("\n");
+    navigator.clipboard.writeText(text).then(()=>{
+      const btn=$("order-copy"); const orig=btn.textContent;
+      btn.textContent="✓ Copiado!"; setTimeout(()=>{ btn.textContent=orig; },1800);
+    }).catch(()=>toast("Não foi possível copiar","err"));
+  };
+}
+function closeOrderModal(){ $("order-modal").classList.add("hide"); }
+$("order-close").onclick=closeOrderModal;
+$("order-close-x").onclick=closeOrderModal;
+$("order-modal").addEventListener("click", e=>{ if(e.target===$("order-modal")) closeOrderModal(); });
+$("btn-order").onclick=openOrderModal;
 $("btn-apply").onclick=applyRebalance;
 $("btn-undo").onclick=undoRebalance;
 $("btn-lock").onclick=()=>{ if(dirty && !confirm("Há alterações não salvas. Bloquear mesmo assim?")) return; session.key=null; session.token=null; session.unlocked=false; showGate(); init(); };

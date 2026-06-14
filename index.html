@@ -114,7 +114,7 @@ input.txt:focus{border-color:var(--teal);box-shadow:0 0 0 3px #2dd4bf22}
 
 /* table */
 .tablewrap{border:1px solid var(--line);border-radius:var(--radius);overflow:auto;background:var(--surface)}
-table{border-collapse:collapse;width:100%;min-width:1040px}
+table{border-collapse:collapse;min-width:1040px}
 thead th{
   position:sticky;top:0;z-index:2;background:var(--surface-2);
   font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:600;
@@ -164,6 +164,11 @@ tr.dragging{opacity:.4}
 .colpicker label:hover{background:var(--surface-2)}
 .colpicker input[type=checkbox]{accent-color:var(--teal);width:14px;height:14px;flex:none;cursor:pointer}
 .col-hidden{display:none!important}
+/* column resize */
+.th-resize{position:absolute;right:-2px;top:0;bottom:0;width:5px;cursor:col-resize;user-select:none;z-index:3}
+.th-resize:hover,.th-resize.active{background:var(--teal);opacity:.55;border-radius:2px}
+thead th{overflow:hidden}
+tbody td{overflow:hidden}
 .acct .cellinput{font-size:12px;color:var(--muted)}
 tfoot td{padding:12px;border-top:2px solid var(--line);font-family:var(--mono);font-weight:600;background:var(--surface-2)}
 tfoot .lbl{font-family:var(--sans);text-transform:uppercase;letter-spacing:.4px;font-size:11px;color:var(--muted)}
@@ -292,7 +297,7 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th class="drag-col"></th><th>Ativo</th><th data-col="account">Conta</th><th class="tagcell" data-col="tags">Tags</th>
+        <th class="drag-col"></th><th data-col="name">Ativo</th><th data-col="account">Conta</th><th class="tagcell" data-col="tags">Tags</th>
         <th class="r" data-col="targetPct">Alvo %</th><th class="r" data-col="current">Atual R$</th><th class="r" data-col="minMove">Mín. mov.</th>
         <th class="r" data-col="tv">Alvo R$</th><th data-col="dev">Desvio</th><th class="r" data-col="amount">Comprar / Vender</th><th class="r" data-col="finalPct">Final %</th><th></th>
       </tr></thead>
@@ -375,6 +380,7 @@ function applyColVisibility(){
     const hidden=!visibleCols.has(c.id);
     document.querySelectorAll(`[data-col="${c.id}"]`).forEach(e=>e.classList.toggle("col-hidden",hidden));
   });
+  applyColWidths();
 }
 
 /* ============================================================
@@ -542,6 +548,51 @@ function computeRebalance(assets, cashFlow){
   return {totalCurrent, totalFinal, sumPct, result, level, leftover:Math.max(0,leftover), move, direction};
 }
 function assetById(id){ return state.assets.find(a=>a.id===id)||{}; }
+
+/* ============================================================
+   COLUMN RESIZE
+   ============================================================ */
+const COL_WIDTHS_DEFAULT = {name:160,account:115,tags:155,targetPct:72,current:108,minMove:88,tv:108,dev:175,amount:140,finalPct:72};
+function loadColWidths(){
+  try{ const s=localStorage.getItem("calclazy.colw"); if(s) return {...COL_WIDTHS_DEFAULT,...JSON.parse(s)}; }catch(e){}
+  return {...COL_WIDTHS_DEFAULT};
+}
+let colWidths=loadColWidths();
+function saveColWidths(){ try{ localStorage.setItem("calclazy.colw",JSON.stringify(colWidths)); }catch(e){} }
+function applyColWidths(){
+  const tbl=document.querySelector(".tablewrap table");
+  if(!tbl) return;
+  tbl.style.tableLayout="fixed";
+  let total=66; // drag(26) + del(40) fixed
+  document.querySelectorAll("thead th[data-col]").forEach(th=>{
+    const id=th.dataset.col;
+    if(!COL_WIDTHS_DEFAULT.hasOwnProperty(id)) return;
+    const w=colWidths[id]; th.style.width=w+"px";
+    if(id==="name"||visibleCols.has(id)) total+=w;
+  });
+  tbl.style.width=Math.max(total,1040)+"px";
+}
+function initColResize(){
+  applyColWidths();
+  document.querySelectorAll("thead th[data-col]").forEach(th=>{
+    const id=th.dataset.col;
+    if(!COL_WIDTHS_DEFAULT.hasOwnProperty(id)) return;
+    const h=document.createElement("div"); h.className="th-resize";
+    th.appendChild(h);
+    h.addEventListener("mousedown",e=>{
+      e.preventDefault(); e.stopPropagation();
+      const x0=e.clientX, w0=th.offsetWidth;
+      h.classList.add("active");
+      const onMove=ev=>{
+        const w=Math.max(50,w0+ev.clientX-x0);
+        th.style.width=w+"px"; colWidths[id]=w; applyColWidths();
+      };
+      const onUp=()=>{ h.classList.remove("active"); saveColWidths(); document.removeEventListener("mousemove",onMove); document.removeEventListener("mouseup",onUp); };
+      document.addEventListener("mousemove",onMove);
+      document.addEventListener("mouseup",onUp);
+    });
+  });
+}
 
 /* ============================================================
    RENDER
@@ -809,6 +860,7 @@ $("o-retry").onclick=init;
 })();
 $("colpicker-btn").addEventListener("click", e=>{ e.stopPropagation(); $("colpicker").classList.toggle("hide"); });
 document.addEventListener("click", ()=>$("colpicker").classList.add("hide"));
+initColResize();
 
 /* ============================================================
    TOAST

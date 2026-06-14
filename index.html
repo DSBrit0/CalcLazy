@@ -297,13 +297,13 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th class="drag-col"></th><th data-col="name">Ativo</th><th data-col="account">Conta</th><th class="tagcell" data-col="tags">Tags</th>
+        <th class="drag-col"></th><th data-col="name">Ativo</th><th data-col="account">Conta</th><th data-col="cnpj">CNPJ</th><th class="tagcell" data-col="tags">Tags</th>
         <th class="r" data-col="targetPct">Alvo %</th><th class="r" data-col="current">Atual R$</th><th class="r" data-col="minMove">Mín. mov.</th>
         <th class="r" data-col="tv">Alvo R$</th><th data-col="dev">Desvio</th><th class="r" data-col="amount">Comprar / Vender</th><th class="r" data-col="finalPct">Final %</th><th></th>
       </tr></thead>
       <tbody id="tbody"></tbody>
       <tfoot><tr>
-        <td></td><td class="lbl">Totais</td><td data-col="account"></td><td data-col="tags"></td>
+        <td></td><td class="lbl">Totais</td><td data-col="account"></td><td data-col="cnpj"></td><td data-col="tags"></td>
         <td class="r" data-col="targetPct" id="f-pct">—</td><td class="r" data-col="current" id="f-cur">—</td><td data-col="minMove"></td>
         <td class="r" data-col="tv" id="f-tv">—</td><td data-col="dev"></td><td class="r" data-col="amount" id="f-move">—</td><td class="r" data-col="finalPct" id="f-fin">100%</td><td></td>
       </tr></tfoot>
@@ -363,6 +363,7 @@ let lastApplySnapshot = null;
    ============================================================ */
 const COLS = [
   { id:"account",   label:"Conta" },
+  { id:"cnpj",      label:"CNPJ" },
   { id:"tags",      label:"Tags" },
   { id:"targetPct", label:"Alvo %" },
   { id:"current",   label:"Atual R$" },
@@ -411,6 +412,15 @@ function fmtFieldOnLoad(field, val){
   if(field==="targetPct") return v.toLocaleString("pt-BR",{maximumFractionDigits:4})+"%";
   if(field==="current"||field==="minMove") return fmtBRL(v);
   return ""+val;
+}
+function fmtCNPJ(s){
+  const d=(s||"").replace(/\D/g,"").slice(0,14);
+  if(!d) return "";
+  if(d.length<=2) return d;
+  if(d.length<=5) return d.slice(0,2)+"."+d.slice(2);
+  if(d.length<=8) return d.slice(0,2)+"."+d.slice(2,5)+"."+d.slice(5);
+  if(d.length<=12) return d.slice(0,2)+"."+d.slice(2,5)+"."+d.slice(5,8)+"/"+d.slice(8);
+  return d.slice(0,2)+"."+d.slice(2,5)+"."+d.slice(5,8)+"/"+d.slice(8,12)+"-"+d.slice(12);
 }
 
 /* ============================================================
@@ -562,7 +572,7 @@ function assetById(id){ return state.assets.find(a=>a.id===id)||{}; }
 /* ============================================================
    COLUMN RESIZE
    ============================================================ */
-const COL_WIDTHS_DEFAULT = {name:160,account:115,tags:155,targetPct:72,current:108,minMove:88,tv:108,dev:175,amount:140,finalPct:72};
+const COL_WIDTHS_DEFAULT = {name:160,account:115,cnpj:148,tags:155,targetPct:72,current:108,minMove:88,tv:108,dev:175,amount:140,finalPct:72};
 function loadColWidths(){
   try{ const s=localStorage.getItem("calclazy.colw"); if(s) return {...COL_WIDTHS_DEFAULT,...JSON.parse(s)}; }catch(e){}
   return {...COL_WIDTHS_DEFAULT};
@@ -654,6 +664,7 @@ function renderTable(){
     tr.appendChild(tdInput(a.id,"name","Nome do ativo",a.name,"name"));
     let _t;
     _t=tdInput(a.id,"account","banco · liquidez",a.account,"",("acct")); _t.dataset.col="account"; tr.appendChild(_t);
+    _t=tdInput(a.id,"cnpj","00.000.000/0000-00",fmtCNPJ(a.cnpj),""); _t.dataset.col="cnpj"; tr.appendChild(_t);
     _t=tagCell(a); _t.dataset.col="tags"; tr.appendChild(_t);
     _t=tdInput(a.id,"targetPct","0%",fmtFieldOnLoad("targetPct",a.targetPct),"num",null,"r"); _t.dataset.col="targetPct"; tr.appendChild(_t);
     _t=tdInput(a.id,"current","R$ 0,00",fmtFieldOnLoad("current",a.current),"num",null,"r"); _t.dataset.col="current"; tr.appendChild(_t);
@@ -763,7 +774,9 @@ $("tbody").addEventListener("input", e=>{
 const NUM_FIELDS=new Set(["targetPct","current","minMove"]);
 $("tbody").addEventListener("focusin", e=>{
   const t=e.target; if(!t.dataset||!t.dataset.field) return;
-  const field=t.dataset.field; if(!NUM_FIELDS.has(field)) return;
+  const field=t.dataset.field;
+  if(field==="cnpj"){ t.value=(t.value||"").replace(/\D/g,""); requestAnimationFrame(()=>t.select()); return; }
+  if(!NUM_FIELDS.has(field)) return;
   const v=parseNum(t.value);
   t.value = v ? (field==="targetPct"
     ? v.toLocaleString("pt-BR",{maximumFractionDigits:4})
@@ -773,7 +786,9 @@ $("tbody").addEventListener("focusin", e=>{
 $("tbody").addEventListener("focusout", e=>{
   const t=e.target; if(!t.dataset||!t.dataset.field) return;
   const a=assetById(t.dataset.id); if(!a) return;
-  const field=t.dataset.field; if(!NUM_FIELDS.has(field)) return;
+  const field=t.dataset.field;
+  if(field==="cnpj"){ const fmt=fmtCNPJ(t.value); t.value=fmt; a.cnpj=fmt; return; }
+  if(!NUM_FIELDS.has(field)) return;
   const v=parseNum(t.value);
   const fmt = v ? (field==="targetPct"
     ? v.toLocaleString("pt-BR",{maximumFractionDigits:4})+"%"

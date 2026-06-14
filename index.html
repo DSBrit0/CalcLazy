@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
 :root{
   --bg:#0c1116; --surface:#141b22; --surface-2:#1b242d; --surface-3:#222e39;
@@ -212,6 +213,19 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
 .oi-sell .oi-val{color:var(--danger)}
 .order-empty{color:var(--muted);font-size:13px;padding:16px 12px}
 .order-summary{font-size:12px;color:var(--muted);margin-bottom:0;border-top:1px solid var(--line);padding-top:10px}
+/* history modal */
+.hist-modal{width:min(920px,96vw)}
+.hist-tabs{display:flex;gap:2px;margin:14px 0 0;border-bottom:1px solid var(--line)}
+.hist-tab{background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--muted);font-size:13px;font-family:inherit;font-weight:500;padding:8px 18px;cursor:pointer;transition:color .15s}
+.hist-tab:hover{color:var(--ink)}
+.hist-tab.active{color:var(--teal);border-bottom-color:var(--teal)}
+.hist-pane{padding-top:18px}
+.hist-chart-wrap{position:relative;height:330px;width:100%}
+.asset-toggles{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.asset-toggle{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:12px;font-family:inherit;cursor:pointer;border:1px solid;background:none;font-weight:500;transition:opacity .15s}
+.asset-toggle.off{opacity:.3}
+.hist-empty{text-align:center;padding:44px 20px;color:var(--muted);font-size:14px;line-height:1.7}
+.hist-meta{font-size:11.5px;color:var(--faint);margin-top:10px;text-align:right}
 
 @media (max-width:640px){
   .card .v{font-size:18px}
@@ -308,6 +322,8 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
       <div id="colpicker" class="colpicker hide"></div>
     </div>
     <button id="clearfilter" class="btn ghost sm hide">Limpar filtro</button>
+    <button id="btn-snapshot" class="btn ghost sm" title="Registrar snapshot manual do patrimônio atual">📸 Snapshot</button>
+    <button id="btn-history" class="btn ghost sm">📈 Histórico</button>
   </div>
 
   <div class="tablewrap">
@@ -338,6 +354,35 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
     <span class="pill" id="enginecheck">engine: verificando…</span>
     <span>Cálculo: <i>Optimal lazy rebalancing</i> · dados cifrados localmente</span>
   </footer>
+</div>
+
+<!-- history modal -->
+<div id="hist-modal" class="modal-bg hide">
+  <div class="modal hist-modal">
+    <div class="order-head">
+      <h3>Evolução da Carteira</h3>
+      <button class="order-close-x" id="hist-close-x">×</button>
+    </div>
+    <div class="hist-tabs">
+      <button class="hist-tab active" data-tab="total">Patrimônio Total</button>
+      <button class="hist-tab" data-tab="assets">Por Ativo</button>
+    </div>
+    <div id="hist-pane-total" class="hist-pane">
+      <div class="hist-chart-wrap"><canvas id="chart-total"></canvas></div>
+    </div>
+    <div id="hist-pane-assets" class="hist-pane hide">
+      <div id="asset-toggles" class="asset-toggles"></div>
+      <div class="hist-chart-wrap"><canvas id="chart-assets"></canvas></div>
+    </div>
+    <div id="hist-empty" class="hist-empty hide">
+      Nenhum snapshot registrado ainda.<br>
+      Clique em <b>📸 Snapshot</b> para salvar o estado atual, ou aplique um aporte — o registro é feito automaticamente.
+    </div>
+    <p id="hist-meta" class="hist-meta"></p>
+    <div class="btn-row" style="margin-top:6px">
+      <button id="hist-close" class="btn ghost">Fechar</button>
+    </div>
+  </div>
 </div>
 
 <!-- order modal -->
@@ -385,7 +430,7 @@ function loadCfg(){
 function saveCfg(c){ try{ localStorage.setItem("calclazy.cfg", JSON.stringify(c)); }catch(e){} }
 
 const session = { cfg:loadCfg(), key:null, salt:null, token:null, sha:null, fileExists:false, offline:false, unlocked:false };
-let state = { assets:[], cashFlow:0 };
+let state = { assets:[], cashFlow:0, history:[] };
 let activeFilters = new Set();
 let dirty = false;
 let dragSrcId = null;
@@ -884,6 +929,7 @@ function applyRebalance(){
     a.current=fmtBRL(parseNum(a.current)+r.amount);
   });
   state.cashFlow=0;
+  recordSnapshot("apply");
   markDirty(true);
   fullRender();
   $("flow").value="";
@@ -938,6 +984,134 @@ $("order-close").onclick=closeOrderModal;
 $("order-close-x").onclick=closeOrderModal;
 $("order-modal").addEventListener("click", e=>{ if(e.target===$("order-modal")) closeOrderModal(); });
 $("btn-order").onclick=openOrderModal;
+
+/* ============================================================
+   HISTÓRICO / CHARTS
+   ============================================================ */
+const HIST_PALETTE=['#2dd4bf','#f0a04b','#e5675f','#a78bfa','#34d399','#fb923c','#60a5fa','#f472b6','#a3e635','#facc15'];
+let _chartTotal=null, _chartAssets=null;
+
+function recordSnapshot(type){
+  if(!state.history) state.history=[];
+  const today=new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
+  const total=state.assets.reduce((s,a)=>s+parseNum(a.current),0);
+  const snap={ date: new Date().toISOString(), type, total,
+    assets: state.assets.map(a=>({ name: a.name||"(sem nome)", value: parseNum(a.current) })) };
+  const idx=state.history.findIndex(h=>h.date.slice(0,10)===today);
+  if(idx>=0) state.history[idx]=snap; else state.history.push(snap);
+  markDirty(true);
+}
+
+function fmtDateLabel(iso){ const d=new Date(iso); return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit"}); }
+function fmtDateFull(iso){ const d=new Date(iso); return d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
+
+function destroyCharts(){ if(_chartTotal){_chartTotal.destroy();_chartTotal=null;} if(_chartAssets){_chartAssets.destroy();_chartAssets=null;} }
+
+function openHistModal(){
+  destroyCharts();
+  const hist=(state.history||[]);
+  const hasData=hist.length>0;
+
+  $("hist-pane-total").classList.toggle("hide",!hasData);
+  $("hist-pane-assets").classList.toggle("hide",true); // começa na aba total
+  $("hist-empty").classList.toggle("hide",hasData);
+  $("hist-meta").textContent=hasData?`${hist.length} snapshot${hist.length!==1?"s":""} registrado${hist.length!==1?"s":""}. Último: ${fmtDateFull(hist[hist.length-1].date)} (${hist[hist.length-1].type==="apply"?"aporte/resgate":"manual"}).`:"";
+
+  // forçar aba total ativa
+  document.querySelectorAll(".hist-tab").forEach(t=>t.classList.toggle("active",t.dataset.tab==="total"));
+
+  if(hasData){
+    const labels=hist.map(h=>fmtDateLabel(h.date));
+    const chartOpts=(yFmt)=>({
+      responsive:true, maintainAspectRatio:false,
+      animation:{duration:300},
+      scales:{
+        x:{ ticks:{color:"#8a99a6",font:{size:11}}, grid:{color:"#28333d"} },
+        y:{ ticks:{color:"#8a99a6",font:{size:11},callback:v=>fmtBRL(v)}, grid:{color:"#28333d"} }
+      },
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:"#1b242d",borderColor:"#28333d",borderWidth:1,
+          titleColor:"#e8eef3",bodyColor:"#8a99a6",
+          callbacks:{ title:ctx=>fmtDateFull(hist[ctx[0].dataIndex].date), label:ctx=>fmtBRL(ctx.raw) }
+        }
+      }
+    });
+
+    // Chart 1 — Patrimônio Total
+    _chartTotal=new Chart($("chart-total").getContext("2d"),{
+      type:"line",
+      data:{
+        labels,
+        datasets:[{
+          label:"Patrimônio Total",
+          data:hist.map(h=>h.total),
+          borderColor:"#2dd4bf",
+          backgroundColor:"#2dd4bf18",
+          fill:true, tension:0.35, pointRadius:4, pointHoverRadius:6
+        }]
+      },
+      options:chartOpts()
+    });
+
+    // Chart 2 — Por ativo (inicializa mas não exibe ainda)
+    const allNames=[...new Set(hist.flatMap(h=>h.assets.map(a=>a.name)))];
+    const toggleWrap=$("asset-toggles"); toggleWrap.innerHTML="";
+    const datasets=allNames.map((name,i)=>{
+      const color=HIST_PALETTE[i%HIST_PALETTE.length];
+      const btn=document.createElement("button");
+      btn.className="asset-toggle"; btn.style.borderColor=color; btn.style.color=color;
+      btn.textContent=name; btn.dataset.idx=i;
+      toggleWrap.appendChild(btn);
+      return { label:name, data:hist.map(h=>{ const a=h.assets.find(x=>x.name===name); return a?a.value:null; }),
+        borderColor:color, backgroundColor:"transparent",
+        spanGaps:false, tension:0.35, pointRadius:3, pointHoverRadius:5, borderWidth:2 };
+    });
+    _chartAssets=new Chart($("chart-assets").getContext("2d"),{
+      type:"line",
+      data:{ labels, datasets },
+      options:{ ...chartOpts(), plugins:{ ...chartOpts().plugins, legend:{display:false} } }
+    });
+    // toggle de visibilidade dos ativos
+    toggleWrap.querySelectorAll(".asset-toggle").forEach(btn=>{
+      btn.addEventListener("click",()=>{
+        const i=+btn.dataset.idx;
+        _chartAssets.data.datasets[i].hidden=!_chartAssets.data.datasets[i].hidden;
+        btn.classList.toggle("off");
+        _chartAssets.update();
+      });
+    });
+  }
+
+  $("hist-modal").classList.remove("hide");
+}
+
+function closeHistModal(){ $("hist-modal").classList.add("hide"); destroyCharts(); }
+$("hist-close").onclick=closeHistModal;
+$("hist-close-x").onclick=closeHistModal;
+$("hist-modal").addEventListener("click",e=>{ if(e.target===$("hist-modal")) closeHistModal(); });
+$("btn-history").onclick=openHistModal;
+
+// tabs de histórico
+document.querySelectorAll(".hist-tab").forEach(tab=>{
+  tab.addEventListener("click",()=>{
+    document.querySelectorAll(".hist-tab").forEach(t=>t.classList.remove("active"));
+    tab.classList.add("active");
+    const isTotal=tab.dataset.tab==="total";
+    $("hist-pane-total").classList.toggle("hide",!isTotal);
+    $("hist-pane-assets").classList.toggle("hide",isTotal);
+    // força resize do chart para o canvas recém-visível
+    if(!isTotal && _chartAssets) requestAnimationFrame(()=>_chartAssets.resize());
+    if(isTotal && _chartTotal) requestAnimationFrame(()=>_chartTotal.resize());
+  });
+});
+
+$("btn-snapshot").onclick=()=>{
+  recordSnapshot("manual");
+  toast("Snapshot registrado");
+};
+
 $("btn-apply").onclick=applyRebalance;
 $("btn-undo").onclick=undoRebalance;
 $("btn-lock").onclick=()=>{ if(dirty && !confirm("Há alterações não salvas. Bloquear mesmo assim?")) return; session.key=null; session.token=null; session.unlocked=false; showGate(); init(); };
@@ -970,8 +1144,9 @@ async function unlock(){
     const key=await deriveKey(pass, salt);
     const data=await decryptObj(key, session._file);
     session.key=key; session.salt=salt; session.token=(data.github&&data.github.token)||null;
-    state=data.state||{assets:[],cashFlow:0};
-    if(!state.assets) state.assets=[]; state.assets.forEach(a=>{ if(!a.id)a.id=uid(); if(!a.tags)a.tags=[]; });
+    state=data.state||{assets:[],cashFlow:0,history:[]};
+    if(!state.assets) state.assets=[]; if(!state.history) state.history=[];
+    state.assets.forEach(a=>{ if(!a.id)a.id=uid(); if(!a.tags)a.tags=[]; });
     enterApp();
   }catch(err){ console.warn(err); msg.className="gate-msg err"; msg.textContent="Senha incorreta ou arquivo ilegível."; }
 }

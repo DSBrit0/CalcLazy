@@ -153,6 +153,11 @@ td.r{text-align:right}
 .tagadd:focus{border-color:var(--teal);border-style:solid}
 .rowdel{background:transparent;border:none;color:var(--faint);font-size:16px;line-height:1;padding:4px 6px;border-radius:6px}
 .rowdel:hover{color:var(--danger);background:#1c1416}
+.drag-col{width:26px}
+.drag-handle{color:var(--faint);padding:0 4px 0 10px;font-size:15px;cursor:grab;user-select:none;vertical-align:middle}
+.drag-handle:hover{color:var(--muted)}
+tr.drag-over-top td{box-shadow:inset 0 2px 0 var(--teal)}
+tr.dragging{opacity:.4}
 .acct .cellinput{font-size:12px;color:var(--muted)}
 tfoot td{padding:12px;border-top:2px solid var(--line);font-family:var(--mono);font-weight:600;background:var(--surface-2)}
 tfoot .lbl{font-family:var(--sans);text-transform:uppercase;letter-spacing:.4px;font-size:11px;color:var(--muted)}
@@ -277,13 +282,13 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th>Ativo</th><th>Conta</th><th class="tagcell">Tags</th>
+        <th class="drag-col"></th><th>Ativo</th><th>Conta</th><th class="tagcell">Tags</th>
         <th class="r">Alvo %</th><th class="r">Atual R$</th><th class="r">Mín. mov.</th>
         <th class="r">Alvo R$</th><th>Desvio</th><th class="r">Comprar / Vender</th><th class="r">Final %</th><th></th>
       </tr></thead>
       <tbody id="tbody"></tbody>
       <tfoot><tr>
-        <td class="lbl">Totais</td><td></td><td></td>
+        <td></td><td class="lbl">Totais</td><td></td><td></td>
         <td class="r" id="f-pct">—</td><td class="r" id="f-cur">—</td><td></td>
         <td class="r" id="f-tv">—</td><td></td><td class="r" id="f-move">—</td><td class="r" id="f-fin">100%</td><td></td>
       </tr></tfoot>
@@ -333,6 +338,7 @@ const session = { cfg:loadCfg(), key:null, salt:null, token:null, sha:null, file
 let state = { assets:[], cashFlow:0 };
 let activeFilters = new Set();
 let dirty = false;
+let dragSrcId = null;
 
 /* ============================================================
    FORMAT / PARSE (pt-BR)
@@ -537,6 +543,15 @@ function renderTable(){
   state.assets.forEach(a=>{
     if(!rowVisible(a)) return;
     const tr=el("tr"); tr.dataset.id=a.id;
+    // drag handle
+    const grip=el("td","drag-handle","⠿"); grip.title="Arrastar para reordenar";
+    tr.addEventListener("mousedown", e=>{ tr.draggable=e.target===grip||grip.contains(e.target); });
+    tr.addEventListener("dragstart", e=>{ dragSrcId=a.id; e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",a.id); tr.classList.add("dragging"); });
+    tr.addEventListener("dragend", ()=>{ tr.draggable=false; tr.classList.remove("dragging"); tb.querySelectorAll("tr.drag-over-top").forEach(r=>r.classList.remove("drag-over-top")); });
+    tr.addEventListener("dragover", e=>{ e.preventDefault(); tb.querySelectorAll("tr.drag-over-top").forEach(r=>r.classList.remove("drag-over-top")); tr.classList.add("drag-over-top"); });
+    tr.addEventListener("dragleave", e=>{ if(!tr.contains(e.relatedTarget)) tr.classList.remove("drag-over-top"); });
+    tr.addEventListener("drop", e=>{ e.preventDefault(); tr.classList.remove("drag-over-top"); if(!dragSrcId||dragSrcId===a.id) return; const si=state.assets.findIndex(x=>x.id===dragSrcId), di=state.assets.findIndex(x=>x.id===a.id); if(si<0||di<0) return; const [mv]=state.assets.splice(si,1); state.assets.splice(di,0,mv); markDirty(true); fullRender(); });
+    tr.appendChild(grip);
     tr.appendChild(tdInput(a.id,"name","Nome do ativo",a.name,"name"));
     tr.appendChild(tdInput(a.id,"account","banco · liquidez",a.account,"",("acct")));
     tr.appendChild(tagCell(a));

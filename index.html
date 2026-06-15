@@ -1045,21 +1045,23 @@ async function doSave(){
     session.sha=sha; session.fileExists=true; markDirty(false);
     toast("Salvo no GitHub");
   }catch(err){
-    if(err.message&&err.message.includes("401")){
-      /* Token revogado — pede novo PAT e oferece upgrade para 600k */
-      setSync("dirty","token inválido");
+    const is401=err.message&&err.message.includes("401");
+    const is403=err.message&&err.message.includes("403");
+    if(is401||is403){
+      setSync("dirty",is403?"sem permissão":"token inválido");
       session.token=null; await saveStoredToken(session.key, null);
-      const newTok=(window.prompt("Token inválido (401 — revogado ou expirado).\nCole o novo Personal Access Token:")||"").trim();
+      const reason=is403
+        ? "Token sem permissão de escrita no repositório (403).\n\nVerifique as permissões do PAT:\n• Fine-grained: Repository → Contents → Read and write\n• Classic: escopo 'repo'\n\nCole o novo Personal Access Token com permissões corretas:"
+        : "Token inválido ou revogado (401).\nCole o novo Personal Access Token:";
+      const newTok=(window.prompt(reason)||"").trim();
       if(!newTok){ toast("Token necessário para salvar","err"); return; }
       /* Oferece upgrade de iter se vault ainda usa 250k */
       if((session.iter||PBKDF2_ITER)<PBKDF2_ITER && session._file){
-        const pwd=(window.prompt("Token atualizado!\n\nSua vault usa 250.000 iterações (padrão antigo).\nPara atualizar para 600.000 (mais seguro), confirme sua senha.\nDeixe vazio para manter o padrão atual:")||"").trim();
+        const pwd=(window.prompt("Token atualizado!\n\nSua vault usa 250.000 iterações (padrão antigo).\nPara atualizar para 600.000 (mais seguro), confirme sua senha ATUAL.\nDeixe vazio para manter o padrão atual:")||"").trim();
         if(pwd){
           try{
-            /* Verifica a senha antes de migrar: decripta o arquivo atual com iter real */
             const checkKey=await deriveKey(pwd, session.salt, session.iter);
             await decryptObj(checkKey, session._file);
-            /* Senha correta — re-deriva com 600k e atualiza sessão */
             session.key=await deriveKey(pwd, session.salt, PBKDF2_ITER);
             session.iter=PBKDF2_ITER;
             await saveStoredToken(session.key, newTok);
@@ -1069,7 +1071,6 @@ async function doSave(){
       }
       session.token=newTok;
       await saveStoredToken(session.key, newTok);
-      /* Retenta o save com novo token (e chave possivelmente atualizada) */
       try{
         setSync("busy","salvando…");
         const file2=await encryptObj(session.key, session.salt, packFile(), session.iter||PBKDF2_ITER);

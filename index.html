@@ -226,6 +226,12 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
 .asset-toggle.off{opacity:.3}
 .hist-empty{text-align:center;padding:44px 20px;color:var(--muted);font-size:14px;line-height:1.7}
 .hist-meta{font-size:11.5px;color:var(--faint);margin-top:10px;text-align:right}
+.pie-tag-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.pie-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:12px;font-family:inherit;cursor:pointer;border:1.5px solid var(--line);background:none;color:var(--muted);font-weight:500;transition:background .15s,color .15s,border-color .15s}
+.pie-chip.on{background:var(--teal);border-color:var(--teal);color:#0d1b22;font-weight:600}
+.pie-hint{text-align:center;padding:32px 20px;color:var(--muted);font-size:13px}
+.pie-wrap{position:relative;height:340px;display:flex;align-items:center;justify-content:center}
+.pie-wrap canvas{max-height:340px}
 thead th[data-col]{cursor:grab;user-select:none}
 thead th[data-col]:active{cursor:grabbing}
 thead th[data-col].col-dragging{opacity:.35}
@@ -321,7 +327,7 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
     </div>
     <button id="clearfilter" class="btn ghost sm hide">Limpar filtro</button>
     <button id="btn-snapshot" class="btn ghost sm" title="Registrar snapshot manual do patrimônio atual">📸 Snapshot</button>
-    <button id="btn-history" class="btn ghost sm">📈 Histórico</button>
+    <button id="btn-history" class="btn ghost sm">📊 Gráficos</button>
   </div>
 
   <div class="tablewrap">
@@ -362,6 +368,7 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
     <div class="hist-tabs">
       <button class="hist-tab active" data-tab="total">Patrimônio Total</button>
       <button class="hist-tab" data-tab="assets">Por Ativo</button>
+      <button class="hist-tab" data-tab="tags">Por Tags</button>
     </div>
     <div id="hist-pane-total" class="hist-pane">
       <div class="hist-chart-wrap"><canvas id="chart-total"></canvas></div>
@@ -369,6 +376,13 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
     <div id="hist-pane-assets" class="hist-pane hide">
       <div id="asset-toggles" class="asset-toggles"></div>
       <div class="hist-chart-wrap"><canvas id="chart-assets"></canvas></div>
+    </div>
+    <div id="hist-pane-tags" class="hist-pane hide">
+      <div id="pie-tag-chips" class="pie-tag-chips"></div>
+      <div id="pie-hint" class="pie-hint">Selecione ao menos 2 tags para gerar o gráfico.</div>
+      <div id="pie-wrap" class="pie-wrap hide">
+        <canvas id="chart-pie-tags"></canvas>
+      </div>
     </div>
     <div id="hist-empty" class="hist-empty hide">
       Nenhum snapshot registrado ainda.<br>
@@ -1075,7 +1089,8 @@ $("btn-order").onclick=openOrderModal;
    HISTÓRICO / CHARTS
    ============================================================ */
 const HIST_PALETTE=['#2dd4bf','#f0a04b','#e5675f','#a78bfa','#34d399','#fb923c','#60a5fa','#f472b6','#a3e635','#facc15'];
-let _chartTotal=null, _chartAssets=null;
+let _chartTotal=null, _chartAssets=null, _chartPie=null;
+let pieSelectedTags=new Set();
 
 function recordSnapshot(type){
   if(!state.history) state.history=[];
@@ -1091,7 +1106,73 @@ function recordSnapshot(type){
 function fmtDateLabel(iso){ const d=new Date(iso); return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit"}); }
 function fmtDateFull(iso){ const d=new Date(iso); return d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
 
-function destroyCharts(){ if(_chartTotal){_chartTotal.destroy();_chartTotal=null;} if(_chartAssets){_chartAssets.destroy();_chartAssets=null;} }
+function initPieTagChips(){
+  const wrap=$("pie-tag-chips"); wrap.innerHTML="";
+  pieSelectedTags=new Set();
+  const tags=allTags();
+  if(!tags.length){
+    wrap.innerHTML='<span style="color:var(--muted);font-size:13px">Nenhuma tag cadastrada nos ativos.</span>';
+    renderPieChart(); return;
+  }
+  tags.forEach(tag=>{
+    const btn=document.createElement("button"); btn.className="pie-chip"; btn.textContent=tag;
+    btn.onclick=()=>{
+      if(pieSelectedTags.has(tag)){ pieSelectedTags.delete(tag); btn.classList.remove("on"); }
+      else { pieSelectedTags.add(tag); btn.classList.add("on"); }
+      renderPieChart();
+    };
+    wrap.appendChild(btn);
+  });
+  renderPieChart();
+}
+
+function renderPieChart(){
+  if(_chartPie){ _chartPie.destroy(); _chartPie=null; }
+  const hint=$("pie-hint"), wrap=$("pie-wrap");
+  const selected=[...pieSelectedTags];
+  if(selected.length<2){ hint.classList.remove("hide"); wrap.classList.add("hide"); return; }
+  hint.classList.add("hide"); wrap.classList.remove("hide");
+
+  const totalPortfolio=state.assets.reduce((s,a)=>s+parseNum(a.current),0);
+  const tagValues=selected.map(tag=>({
+    tag,
+    val:state.assets.filter(a=>(a.tags||[]).includes(tag)).reduce((s,a)=>s+parseNum(a.current),0)
+  }));
+  const groupTotal=tagValues.reduce((s,t)=>s+t.val,0);
+  const colors=selected.map((_,i)=>HIST_PALETTE[i%HIST_PALETTE.length]);
+
+  _chartPie=new Chart($("chart-pie-tags").getContext("2d"),{
+    type:"pie",
+    data:{
+      labels:tagValues.map(t=>t.tag),
+      datasets:[{ data:tagValues.map(t=>t.val), backgroundColor:colors, borderColor:"#131c23", borderWidth:2, hoverOffset:8 }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:{duration:300},
+      plugins:{
+        legend:{ display:true, position:"right", labels:{color:"#8a99a6",font:{size:12},padding:14,boxWidth:14} },
+        tooltip:{
+          backgroundColor:"#1b242d", borderColor:"#28333d", borderWidth:1,
+          titleColor:"#e8eef3", bodyColor:"#8a99a6",
+          callbacks:{
+            label:ctx=>{
+              const val=ctx.raw;
+              const pctGrp=groupTotal>0?val/groupTotal*100:0;
+              const pctTot=totalPortfolio>0?val/totalPortfolio*100:0;
+              return [
+                ` ${fmtBRL(val)}`,
+                ` ${pctGrp.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}% do grupo`,
+                ` ${pctTot.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}% da carteira total`
+              ];
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function destroyCharts(){ if(_chartTotal){_chartTotal.destroy();_chartTotal=null;} if(_chartAssets){_chartAssets.destroy();_chartAssets=null;} if(_chartPie){_chartPie.destroy();_chartPie=null;} }
 
 function openHistModal(){
   destroyCharts();
@@ -1100,7 +1181,9 @@ function openHistModal(){
 
   $("hist-pane-total").classList.toggle("hide",!hasData);
   $("hist-pane-assets").classList.toggle("hide",true); // começa na aba total
+  $("hist-pane-tags").classList.toggle("hide",true);
   $("hist-empty").classList.toggle("hide",hasData);
+  initPieTagChips();
   $("hist-meta").textContent=hasData?`${hist.length} snapshot${hist.length!==1?"s":""} registrado${hist.length!==1?"s":""}. Último: ${fmtDateFull(hist[hist.length-1].date)} (${hist[hist.length-1].type==="apply"?"aporte/resgate":"manual"}).`:"";
 
   // forçar aba total ativa
@@ -1184,12 +1267,16 @@ document.querySelectorAll(".hist-tab").forEach(tab=>{
   tab.addEventListener("click",()=>{
     document.querySelectorAll(".hist-tab").forEach(t=>t.classList.remove("active"));
     tab.classList.add("active");
-    const isTotal=tab.dataset.tab==="total";
-    $("hist-pane-total").classList.toggle("hide",!isTotal);
-    $("hist-pane-assets").classList.toggle("hide",isTotal);
-    // força resize do chart para o canvas recém-visível
-    if(!isTotal && _chartAssets) requestAnimationFrame(()=>_chartAssets.resize());
-    if(isTotal && _chartTotal) requestAnimationFrame(()=>_chartTotal.resize());
+    const t=tab.dataset.tab;
+    $("hist-pane-total").classList.toggle("hide",t!=="total");
+    $("hist-pane-assets").classList.toggle("hide",t!=="assets");
+    $("hist-pane-tags").classList.toggle("hide",t!=="tags");
+    const isTags=t==="tags";
+    $("hist-empty").classList.toggle("hide",isTags||(state.history||[]).length>0);
+    $("hist-meta").classList.toggle("hide",isTags);
+    if(t==="assets" && _chartAssets) requestAnimationFrame(()=>_chartAssets.resize());
+    if(t==="total" && _chartTotal) requestAnimationFrame(()=>_chartTotal.resize());
+    if(t==="tags" && _chartPie) requestAnimationFrame(()=>_chartPie.resize());
   });
 });
 

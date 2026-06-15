@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt" crossorigin="anonymous"></script>
 <style>
 :root{
   --bg:#0c1116; --surface:#141b22; --surface-2:#1b242d; --surface-3:#222e39;
@@ -522,14 +522,14 @@ function fmtCNPJ(s){
    CRYPTO  (PBKDF2 + AES-GCM, Web Crypto)
    ============================================================ */
 const td=new TextDecoder(), te=new TextEncoder();
-const PBKDF2_ITER=250000;
+const PBKDF2_ITER=600000;
 function b64FromBytes(buf){ const a=new Uint8Array(buf); let s=""; for(let i=0;i<a.length;i++) s+=String.fromCharCode(a[i]); return btoa(s); }
 function bytesFromB64(b64){ const s=atob((b64||"").replace(/\s+/g,"")); const a=new Uint8Array(s.length); for(let i=0;i<s.length;i++) a[i]=s.charCodeAt(i); return a; }
 const b64Utf8 = str => b64FromBytes(te.encode(str));
 const utf8FromB64 = b64 => td.decode(bytesFromB64(b64));
-async function deriveKey(password, saltBytes){
+async function deriveKey(password, saltBytes, iter){
   const base=await crypto.subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({name:"PBKDF2", salt:saltBytes, iterations:PBKDF2_ITER, hash:"SHA-256"}, base, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2", salt:saltBytes, iterations:iter||PBKDF2_ITER, hash:"SHA-256"}, base, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
 }
 async function encryptObj(key, saltBytes, obj){
   const iv=crypto.getRandomValues(new Uint8Array(12));
@@ -539,6 +539,21 @@ async function encryptObj(key, saltBytes, obj){
 async function decryptObj(key, file){
   const pt=await crypto.subtle.decrypt({name:"AES-GCM", iv:bytesFromB64(file.iv)}, key, bytesFromB64(file.ct));
   return JSON.parse(td.decode(pt));
+}
+/* Token separado do arquivo remoto — armazenado cifrado apenas no localStorage */
+async function saveStoredToken(key, token){
+  if(!token){ localStorage.removeItem("calclazy.token"); return; }
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv}, key, te.encode(token));
+  localStorage.setItem("calclazy.token", JSON.stringify({iv:b64FromBytes(iv),ct:b64FromBytes(new Uint8Array(ct))}));
+}
+async function loadStoredToken(key){
+  try{
+    const s=localStorage.getItem("calclazy.token"); if(!s) return null;
+    const enc=JSON.parse(s);
+    const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:bytesFromB64(enc.iv)}, key, bytesFromB64(enc.ct));
+    return td.decode(pt);
+  }catch(e){ return null; }
 }
 
 /* ============================================================
@@ -797,7 +812,9 @@ function renderTags(){
   if(!tags.length){ wrap.appendChild(el("span","muted","sem tags — adicione na coluna Tags")); }
   tags.forEach(t=>{
     const c=el("button","chip"+(activeFilters.has(t)?" on":""));
-    c.innerHTML=`${t} <span class="cnt">${counts[t]}</span>`;
+    c.textContent=t+" ";
+    const badge=document.createElement("span"); badge.className="cnt"; badge.textContent=counts[t];
+    c.appendChild(badge);
     c.onclick=()=>{ activeFilters.has(t)?activeFilters.delete(t):activeFilters.add(t); fullRender(); };
     wrap.appendChild(c);
   });
@@ -1007,9 +1024,15 @@ $("clearfilter").onclick=()=>{ activeFilters.clear(); fullRender(); };
 /* ============================================================
    PERSISTENCE FLOW
    ============================================================ */
-function packFile(){ return { app:"CalcLazy", v:1, savedAt:new Date().toISOString(), state, github:{ token: session.token } }; }
+function packFile(){ return { app:"CalcLazy", v:1, savedAt:new Date().toISOString(), state }; }
 async function doSave(){
-  if(!session.key||!session.token){ toast("Sem chave/token nesta sessão","err"); return; }
+  if(!session.key){ toast("Sem chave nesta sessão","err"); return; }
+  if(!session.token){
+    const tok=(window.prompt("Token GitHub não encontrado (localStorage limpo?).\nCole o seu Personal Access Token:")||"").trim();
+    if(!tok){ toast("Token obrigatório para salvar","err"); return; }
+    session.token=tok;
+    await saveStoredToken(session.key, tok);
+  }
   try{
     setSync("busy","salvando…");
     const file=await encryptObj(session.key, session.salt, packFile());
@@ -1343,22 +1366,42 @@ function enterApp(){ $("gate").classList.add("hide"); $("app").classList.remove(
 }
 
 /* UNLOCK */
+let _unlockAttempts=0;
 $("u-go").onclick=unlock;
 $("u-pass").addEventListener("keydown",e=>{ if(e.key==="Enter") unlock(); });
 async function unlock(){
-  const pass=$("u-pass").value; const msg=$("u-msg"); msg.className="gate-msg"; msg.textContent="";
+  const msg=$("u-msg"); msg.className="gate-msg"; msg.textContent="";
+  if(_unlockAttempts>=5){
+    msg.classList.add("err"); msg.textContent="Muitas tentativas incorretas. Recarregue a página para tentar novamente.";
+    $("u-go").disabled=true; $("u-pass").disabled=true; return;
+  }
+  const pass=$("u-pass").value;
   if(!pass){ msg.classList.add("err"); msg.textContent="Digite a senha."; return; }
   try{
     msg.textContent="Decifrando…";
     const salt=bytesFromB64(session._file.salt);
-    const key=await deriveKey(pass, salt);
+    const key=await deriveKey(pass, salt, session._file.iter||PBKDF2_ITER);
     const data=await decryptObj(key, session._file);
-    session.key=key; session.salt=salt; session.token=(data.github&&data.github.token)||null;
+    session.key=key; session.salt=salt;
+    /* Tenta token no localStorage; migra do formato antigo se necessário */
+    let tok=await loadStoredToken(key);
+    if(!tok && data.github && data.github.token){
+      tok=data.github.token;
+      await saveStoredToken(key, tok);
+    }
+    session.token=tok||null;
     state=data.state||{assets:[],cashFlow:0,history:[]};
     if(!state.assets) state.assets=[]; if(!state.history) state.history=[];
     state.assets.forEach(a=>{ if(!a.id)a.id=uid(); if(!a.tags)a.tags=[]; });
+    _unlockAttempts=0;
     enterApp();
-  }catch(err){ console.warn(err); msg.className="gate-msg err"; msg.textContent="Senha incorreta ou arquivo ilegível."; }
+  }catch(err){
+    _unlockAttempts++;
+    const left=5-_unlockAttempts;
+    msg.className="gate-msg err";
+    msg.textContent=left>0?`Senha incorreta. ${left} tentativa${left===1?"":"s"} restante${left===1?"":"s"}.`:"Muitas tentativas. Recarregue a página.";
+    if(_unlockAttempts>=5){ $("u-go").disabled=true; $("u-pass").disabled=true; }
+  }
 }
 
 /* SETUP */
@@ -1373,6 +1416,7 @@ async function createVault(){
     const salt=crypto.getRandomValues(new Uint8Array(16));
     const key=await deriveKey(p, salt);
     session.key=key; session.salt=salt; session.token=tok;
+    await saveStoredToken(key, tok);
     state = {assets:[],cashFlow:0,history:[]};
     const file=await encryptObj(key, salt, packFile());
     session.sha=await ghPut(session.cfg, tok, file, null);

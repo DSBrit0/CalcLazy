@@ -1026,7 +1026,10 @@ $("clearfilter").onclick=()=>{ activeFilters.clear(); fullRender(); };
 /* ============================================================
    PERSISTENCE FLOW
    ============================================================ */
-function packFile(){ return { app:"CalcLazy", v:1, savedAt:new Date().toISOString(), state }; }
+function packFile(){
+  const pad=crypto.getRandomValues(new Uint8Array(32+(crypto.getRandomValues(new Uint8Array(1))[0]%64)));
+  return { app:"CalcLazy", v:1, savedAt:new Date().toISOString(), _pad:b64FromBytes(pad), state };
+}
 async function doSave(){
   if(!session.key){ toast("Sem chave nesta sessão","err"); return; }
   if(!session.token){

@@ -446,7 +446,7 @@ function loadCfg(){
 }
 function saveCfg(c){ try{ localStorage.setItem("calclazy.cfg", JSON.stringify(c)); }catch(e){} }
 
-const session = { cfg:loadCfg(), key:null, salt:null, token:null, sha:null, fileExists:false, unlocked:false };
+const session = { cfg:loadCfg(), key:null, salt:null, iter:null, token:null, sha:null, fileExists:false, unlocked:false };
 let state = { assets:[], cashFlow:0, history:[] };
 let activeFilters = new Set();
 let dirty = false;
@@ -533,10 +533,10 @@ async function deriveKey(password, saltBytes, iter){
   const base=await crypto.subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey({name:"PBKDF2", salt:saltBytes, iterations:iter||PBKDF2_ITER, hash:"SHA-256"}, base, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
 }
-async function encryptObj(key, saltBytes, obj){
+async function encryptObj(key, saltBytes, obj, iter){
   const iv=crypto.getRandomValues(new Uint8Array(12));
   const ct=await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, te.encode(JSON.stringify(obj)));
-  return { v:1, kdf:"PBKDF2-SHA256", iter:PBKDF2_ITER, salt:b64FromBytes(saltBytes), iv:b64FromBytes(iv), ct:b64FromBytes(ct) };
+  return { v:1, kdf:"PBKDF2-SHA256", iter:iter||PBKDF2_ITER, salt:b64FromBytes(saltBytes), iv:b64FromBytes(iv), ct:b64FromBytes(ct) };
 }
 async function decryptObj(key, file){
   const pt=await crypto.subtle.decrypt({name:"AES-GCM", iv:bytesFromB64(file.iv)}, key, bytesFromB64(file.ct));
@@ -1040,7 +1040,7 @@ async function doSave(){
   }
   try{
     setSync("busy","salvando…");
-    const file=await encryptObj(session.key, session.salt, packFile());
+    const file=await encryptObj(session.key, session.salt, packFile(), session.iter||PBKDF2_ITER);
     const sha=await ghPut(session.cfg, session.token, file, session.sha);
     session.sha=sha; session.fileExists=true; markDirty(false);
     toast("Salvo no GitHub");
@@ -1385,9 +1385,19 @@ async function unlock(){
   try{
     msg.textContent="Decifrando…";
     const salt=bytesFromB64(session._file.salt);
-    const key=await deriveKey(pass, salt, session._file.iter||PBKDF2_ITER);
-    const data=await decryptObj(key, session._file);
-    session.key=key; session.salt=salt;
+    const fileIter=session._file.iter||PBKDF2_ITER;
+    let key, data, usedIter=fileIter;
+    try{
+      key=await deriveKey(pass, salt, fileIter);
+      data=await decryptObj(key, session._file);
+    }catch(_){
+      /* Fallback: arquivo pode ter iter errado no metadata (bug de transição 250k→600k) */
+      const fallbackIter=fileIter===600000?250000:600000;
+      key=await deriveKey(pass, salt, fallbackIter);
+      data=await decryptObj(key, session._file);
+      usedIter=fallbackIter;
+    }
+    session.key=key; session.salt=salt; session.iter=usedIter;
     /* Tenta token no localStorage; migra do formato antigo se necessário */
     let tok=await loadStoredToken(key);
     if(!tok && data.github && data.github.token){
@@ -1436,10 +1446,10 @@ async function createVault(){
     msg.textContent="Criando e enviando…";
     const salt=crypto.getRandomValues(new Uint8Array(16));
     const key=await deriveKey(p, salt);
-    session.key=key; session.salt=salt; session.token=tok;
+    session.key=key; session.salt=salt; session.iter=PBKDF2_ITER; session.token=tok;
     await saveStoredToken(key, tok);
     state = {assets:[],cashFlow:0,history:[]};
-    const file=await encryptObj(key, salt, packFile());
+    const file=await encryptObj(key, salt, packFile(), PBKDF2_ITER);
     session.sha=await ghPut(session.cfg, tok, file, null);
     session.fileExists=true;
     enterApp();

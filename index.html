@@ -329,13 +329,13 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
       <thead><tr>
         <th class="drag-col"></th><th data-col="name">Ativo</th><th data-col="account">Conta</th><th data-col="cnpj">CNPJ</th><th class="tagcell" data-col="tags">Tags</th>
         <th class="r" data-col="targetPct">Alvo %</th><th class="r" data-col="current">Atual R$</th><th class="r" data-col="minMove">Mín. mov.</th>
-        <th class="r" data-col="tv">Alvo R$</th><th data-col="dev">Desvio</th><th class="r" data-col="amount">Comprar / Vender</th><th class="r" data-col="finalPct">Final %</th><th></th>
+        <th class="r" data-col="tv">Alvo R$</th><th data-col="dev">Desvio</th><th class="r" data-col="devRel">Vs. Média</th><th class="r" data-col="driftShare">Drift %</th><th class="r" data-col="amount">Comprar / Vender</th><th class="r" data-col="finalPct">Final %</th><th></th>
       </tr></thead>
       <tbody id="tbody"></tbody>
       <tfoot><tr>
         <td></td><td class="lbl" data-col="name">Totais</td><td data-col="account"></td><td data-col="cnpj"></td><td data-col="tags"></td>
         <td class="r" data-col="targetPct" id="f-pct">—</td><td class="r" data-col="current" id="f-cur">—</td><td data-col="minMove"></td>
-        <td class="r" data-col="tv" id="f-tv">—</td><td data-col="dev"></td><td class="r" data-col="amount" id="f-move">—</td><td class="r" data-col="finalPct" id="f-fin">100%</td><td></td>
+        <td class="r" data-col="tv" id="f-tv">—</td><td data-col="dev"></td><td data-col="devRel"></td><td data-col="driftShare"></td><td class="r" data-col="amount" id="f-move">—</td><td class="r" data-col="finalPct" id="f-fin">100%</td><td></td>
       </tr></tfoot>
     </table>
   </div>
@@ -443,7 +443,9 @@ const COLS = [
   { id:"current",   label:"Atual R$" },
   { id:"minMove",   label:"Mín. mov." },
   { id:"tv",        label:"Alvo R$" },
-  { id:"dev",       label:"Desvio" },
+  { id:"dev",        label:"Desvio" },
+  { id:"devRel",     label:"Vs. Média" },
+  { id:"driftShare", label:"Drift %" },
   { id:"amount",    label:"Comprar / Vender" },
   { id:"finalPct",  label:"Final %" },
 ];
@@ -646,7 +648,7 @@ function assetById(id){ return state.assets.find(a=>a.id===id)||{}; }
 /* ============================================================
    COLUMN ORDER
    ============================================================ */
-const COL_ORDER_DEFAULT=["name","account","cnpj","tags","targetPct","current","minMove","tv","dev","amount","finalPct"];
+const COL_ORDER_DEFAULT=["name","account","cnpj","tags","targetPct","current","minMove","tv","dev","devRel","driftShare","amount","finalPct"];
 function loadColOrder(){
   try{ const s=localStorage.getItem("calclazy.colorder"); if(s){ const v=JSON.parse(s); if(Array.isArray(v)){ const ex=new Set(v); return [...v,...COL_ORDER_DEFAULT.filter(c=>!ex.has(c))]; } } }catch(e){}
   return [...COL_ORDER_DEFAULT];
@@ -663,7 +665,7 @@ function applyColOrder(){
 /* ============================================================
    COLUMN RESIZE
    ============================================================ */
-const COL_WIDTHS_DEFAULT = {name:160,account:115,cnpj:148,tags:155,targetPct:72,current:108,minMove:88,tv:108,dev:175,amount:140,finalPct:72};
+const COL_WIDTHS_DEFAULT = {name:160,account:115,cnpj:148,tags:155,targetPct:72,current:108,minMove:88,tv:108,dev:175,devRel:90,driftShare:80,amount:140,finalPct:72};
 function loadColWidths(){
   try{ const s=localStorage.getItem("calclazy.colw"); if(s) return {...COL_WIDTHS_DEFAULT,...JSON.parse(s)}; }catch(e){}
   return {...COL_WIDTHS_DEFAULT};
@@ -809,6 +811,8 @@ function renderTable(){
     _t=tdInput(a.id,"minMove","R$ 0,00",fmtFieldOnLoad("minMove",a.minMove),"num",null,"r"); _t.dataset.col="minMove"; tr.appendChild(_t);
     _t=computedCell(`tv-${a.id}`,"r computed dim"); _t.dataset.col="tv"; tr.appendChild(_t);
     _t=devCell(a.id); _t.dataset.col="dev"; tr.appendChild(_t);
+    _t=computedCell(`devr-${a.id}`,"r computed dim"); _t.dataset.col="devRel"; tr.appendChild(_t);
+    _t=computedCell(`drft-${a.id}`,"r computed dim"); _t.dataset.col="driftShare"; tr.appendChild(_t);
     _t=amtCell(a.id); _t.dataset.col="amount"; tr.appendChild(_t);
     _t=computedCell(`fin-${a.id}`,"r computed dim"); _t.dataset.col="finalPct"; tr.appendChild(_t);
     const del=el("td","r"); const b=el("button","rowdel","×"); b.title="Remover"; b.onclick=()=>{ state.assets=state.assets.filter(x=>x.id!==a.id); markDirty(true); fullRender(); }; del.appendChild(b);
@@ -878,6 +882,20 @@ function recalc(){
 
   const MAXABS=0.30;
   const pos=d=>50+Math.max(-1,Math.min(1,d/MAXABS))*50;
+
+  // pré-computa métricas relativas usando apenas ativos visíveis (respeita filtro de tags)
+  const visAssets=state.assets.filter(rowVisible);
+  let meanDev=0, totalAbsDrift=0;
+  const absDriftMap={};
+  if(visAssets.length>0){
+    meanDev=visAssets.reduce((s,a)=>s+(R.result[a.id]?.dev??0),0)/visAssets.length;
+    visAssets.forEach(a=>{
+      const r=R.result[a.id];
+      absDriftMap[a.id]=r?Math.abs(r.dev*r.tv):0;
+      totalAbsDrift+=absDriftMap[a.id];
+    });
+  }
+
   state.assets.forEach(a=>{
     const r=R.result[a.id]; if(!r) return;
     const tv=$("c-tv-"+a.id); if(tv) tv.textContent=fmtBRL(r.tv);
@@ -894,6 +912,19 @@ function recalc(){
       if(Math.abs(r.amount)<0.005){ amt.className="amt zero"; amt.innerHTML="—"; }
       else if(r.amount>0){ amt.className="amt buy"; amt.innerHTML=`${fmtBRL(r.amount)}<small>comprar</small>`; }
       else { amt.className="amt sell"; amt.innerHTML=`${fmtBRL(-r.amount)}<small>vender</small>`; }
+    }
+    // Vs. Média: quanto este ativo desvia vs. a média dos ativos visíveis
+    const devRelEl=$("c-devr-"+a.id);
+    if(devRelEl){
+      const devRel=r.dev-meanDev;
+      devRelEl.textContent=(devRel>0?"+":"")+fmtPct(devRel*100,1);
+      devRelEl.style.color=devRel<-0.001?"var(--teal)":devRel>0.001?"var(--amber)":"var(--muted)";
+    }
+    // Drift %: participação deste ativo no desvio absoluto total dos visíveis
+    const driftEl=$("c-drft-"+a.id);
+    if(driftEl){
+      if(totalAbsDrift<1e-9){ driftEl.textContent="—"; driftEl.style.color="var(--muted)"; }
+      else{ const share=(absDriftMap[a.id]||0)/totalAbsDrift*100; driftEl.textContent=fmtPct(share,1); driftEl.style.color="var(--muted)"; }
     }
   });
   // btn-apply / btn-undo / btn-order state

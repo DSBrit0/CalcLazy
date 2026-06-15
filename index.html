@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/chart.js@4.4.4/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.github.com; img-src data:; frame-ancestors 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="X-Frame-Options" content="DENY">
 <title>CalcLazy — Rebalanceamento Lazy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1390,9 +1392,25 @@ async function unlock(){
       await saveStoredToken(key, tok);
     }
     session.token=tok||null;
-    state=data.state||{assets:[],cashFlow:0,history:[]};
-    if(!state.assets) state.assets=[]; if(!state.history) state.history=[];
-    state.assets.forEach(a=>{ if(!a.id)a.id=uid(); if(!a.tags)a.tags=[]; });
+    const raw=data.state||{};
+    state={ assets:[], cashFlow:0, history:[] };
+    /* Valida estrutura do estado antes de usar — defesa contra state injection */
+    if(Array.isArray(raw.assets)) state.assets=raw.assets;
+    if(typeof raw.cashFlow==="number"&&isFinite(raw.cashFlow)) state.cashFlow=raw.cashFlow;
+    if(Array.isArray(raw.history)) state.history=raw.history;
+    /* Sanitiza cada ativo: preserva todos os campos existentes e valida os críticos */
+    state.assets=state.assets.filter(a=>a&&typeof a==="object"&&!Array.isArray(a)).map(a=>{
+      const clean={...a};
+      clean.id        = typeof a.id==="string"    ? a.id    : uid();
+      clean.name      = typeof a.name==="string"  ? a.name  : "";
+      clean.account   = typeof a.account==="string" ? a.account : "";
+      clean.cnpj      = typeof a.cnpj==="string"  ? a.cnpj  : "";
+      clean.targetPct = (typeof a.targetPct==="number"||typeof a.targetPct==="string") ? a.targetPct : "";
+      clean.current   = (typeof a.current==="number"  ||typeof a.current==="string")   ? a.current   : "";
+      clean.minMove   = (typeof a.minMove==="number"  ||typeof a.minMove==="string")   ? a.minMove   : "";
+      clean.tags      = Array.isArray(a.tags) ? a.tags.filter(t=>typeof t==="string"&&t.length<200) : [];
+      return clean;
+    });
     _unlockAttempts=0;
     enterApp();
   }catch(err){

@@ -94,7 +94,7 @@ input.txt:focus{border-color:var(--teal);box-shadow:0 0 0 3px #2dd4bf22}
 @keyframes pulse{50%{opacity:.3}}
 .top-actions{display:flex;gap:8px;flex-wrap:wrap}
 
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:8px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;position:relative;overflow:hidden}
 .card .k{font-size:11.5px;color:var(--muted);letter-spacing:.3px;text-transform:uppercase}
 .card .v{font-size:21px;margin-top:6px;letter-spacing:-.3px}
@@ -304,16 +304,17 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
 
 
   <div class=”cards”>
-    <div class="card input-card flow">
-      <div class="k">Aporte / Resgate</div>
-      <input id="flow" class="num" type="text" inputmode="decimal" placeholder="0,00">
-      <div class="hint">positivo = aportar · negativo = resgatar</div>
+    <div class=”card input-card flow”>
+      <div class=”k”>Aporte / Resgate</div>
+      <input id=”flow” class=”num” type=”text” inputmode=”decimal” placeholder=”0,00”>
+      <div class=”hint”>positivo = aportar · negativo = resgatar</div>
     </div>
-    <div class="card"><div class="k">Total atual</div><div id="s-current" class="v num">—</div></div>
-    <div id="total-final-card" class="card" style="display:none"><div class="k">Total final</div><div id="s-final" class="v num">—</div></div>
-    <div class="card" style="display:none"><div class="k">Soma alvo</div><div id="s-sumpct" class="v num">—</div><div class="hint">deve somar 100%</div></div>
-    <div class="card"><div class="k" id="s-movk">A movimentar</div><div id="s-move" class="v num">—</div></div>
-    <div id="s-leftcard" class="card alert hide"><div class="k" id="s-leftk">Não aplicado</div><div id="s-left" class="v num warn">—</div></div>
+    <div class=”card”><div class=”k”>Total atual</div><div id=”s-current” class=”v num”>—</div></div>
+    <div id=”total-final-card” class=”card” style="display:none"><div class=”k”>Total final</div><div id=”s-final” class=”v num”>—</div></div>
+    <div id=”s-leftcard” class=”card alert hide”><div class=”k” id=”s-leftk”>Não aplicado</div><div id=”s-left” class=”v num warn”>—</div></div>
+    <!-- elementos ocultos usados pelo JS — não afetam o layout pois display:none retira do fluxo do grid -->
+    <div style="display:none"><div id=”s-sumpct” class=”v num”></div></div>
+    <div style="display:none"><div id=”s-movk”></div><div id=”s-move” class=”v num”></div></div>
   </div>
 
   <details class="how" id="tags-section">

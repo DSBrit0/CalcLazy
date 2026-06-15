@@ -1033,7 +1033,7 @@ function packFile(){
 async function doSave(){
   if(!session.key){ toast("Sem chave nesta sessão","err"); return; }
   if(!session.token){
-    const tok=(window.prompt("Token GitHub não encontrado (localStorage limpo?).\nCole o seu Personal Access Token:")||"").trim();
+    const tok=(window.prompt("Token GitHub não encontrado.\nCole o seu Personal Access Token:")||"").trim();
     if(!tok){ toast("Token obrigatório para salvar","err"); return; }
     session.token=tok;
     await saveStoredToken(session.key, tok);
@@ -1044,7 +1044,41 @@ async function doSave(){
     const sha=await ghPut(session.cfg, session.token, file, session.sha);
     session.sha=sha; session.fileExists=true; markDirty(false);
     toast("Salvo no GitHub");
-  }catch(err){ console.error(err); setSync("dirty","falha ao salvar"); toast(err.message||"Erro ao salvar","err"); }
+  }catch(err){
+    if(err.message&&err.message.includes("401")){
+      /* Token revogado — pede novo PAT e oferece upgrade para 600k */
+      setSync("dirty","token inválido");
+      session.token=null; await saveStoredToken(session.key, null);
+      const newTok=(window.prompt("Token inválido (401 — revogado ou expirado).\nCole o novo Personal Access Token:")||"").trim();
+      if(!newTok){ toast("Token necessário para salvar","err"); return; }
+      /* Oferece upgrade de iter se vault ainda usa 250k */
+      if((session.iter||PBKDF2_ITER)<PBKDF2_ITER && session._file){
+        const pwd=(window.prompt("Token atualizado!\n\nSua vault usa 250.000 iterações (padrão antigo).\nPara atualizar para 600.000 (mais seguro), confirme sua senha.\nDeixe vazio para manter o padrão atual:")||"").trim();
+        if(pwd){
+          try{
+            /* Verifica a senha antes de migrar: decripta o arquivo atual com iter real */
+            const checkKey=await deriveKey(pwd, session.salt, session.iter);
+            await decryptObj(checkKey, session._file);
+            /* Senha correta — re-deriva com 600k e atualiza sessão */
+            session.key=await deriveKey(pwd, session.salt, PBKDF2_ITER);
+            session.iter=PBKDF2_ITER;
+            await saveStoredToken(session.key, newTok);
+            toast("Vault atualizada para 600.000 iterações");
+          }catch(e){ toast("Senha incorreta — upgrade cancelado, token atualizado","warn"); }
+        }
+      }
+      session.token=newTok;
+      await saveStoredToken(session.key, newTok);
+      /* Retenta o save com novo token (e chave possivelmente atualizada) */
+      try{
+        setSync("busy","salvando…");
+        const file2=await encryptObj(session.key, session.salt, packFile(), session.iter||PBKDF2_ITER);
+        const sha2=await ghPut(session.cfg, newTok, file2, session.sha);
+        session.sha=sha2; session.fileExists=true; markDirty(false);
+        toast("Salvo no GitHub");
+      }catch(err2){ console.error(err2); setSync("dirty","falha ao salvar"); toast(err2.message||"Erro ao salvar","err"); }
+    }else{ console.error(err); setSync("dirty","falha ao salvar"); toast(err.message||"Erro ao salvar","err"); }
+  }
 }
 $("btn-save").onclick=doSave;
 function applyRebalance(){

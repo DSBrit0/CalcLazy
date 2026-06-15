@@ -303,33 +303,26 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
   </div>
 
 
-  <details class="how">
-    <summary>▸ Como o cálculo funciona</summary>
-    <div class="howbody">
-      Para cada ativo, o <b>valor‑alvo</b> = <code>%alvo × (total atual + aporte/resgate)</code> e o <b>desvio</b> = <code>valor atual ÷ valor‑alvo − 1</code>.
-      Ao <b>aportar</b> (valor positivo), o dinheiro novo enche primeiro os ativos mais sub‑alocados até todos atingirem um mesmo nível de desvio — maximiza o menor desvio, sem vender nada.
-      Ao <b>resgatar</b> (valor negativo), vende dos mais sobre‑alocados até nivelar — minimiza o maior desvio, sem comprar nada.
-      O campo <b>mín. mov.</b> (opcional) respeita o aporte/resgate mínimo de cada fundo: se a compra/venda calculada ficar abaixo do mínimo, aquele ativo sai da conta e o valor é redistribuído entre os elegíveis (a lógica lazy é refeita). Sobras que não atingem nenhum mínimo aparecem como “não aplicado”.
-      A coluna <b>Comprar/Vender</b> é o resultado do cálculo e não é editável.
-    </div>
-  </details>
-
-  <div class="cards">
+  <div class=”cards”>
     <div class="card input-card flow">
       <div class="k">Aporte / Resgate</div>
       <input id="flow" class="num" type="text" inputmode="decimal" placeholder="0,00">
       <div class="hint">positivo = aportar · negativo = resgatar</div>
     </div>
     <div class="card"><div class="k">Total atual</div><div id="s-current" class="v num">—</div></div>
-    <div class="card"><div class="k">Total final</div><div id="s-final" class="v num">—</div></div>
-    <div class="card"><div class="k">Soma alvo</div><div id="s-sumpct" class="v num">—</div><div class="hint">deve somar 100%</div></div>
+    <div id="total-final-card" class="card" style="display:none"><div class="k">Total final</div><div id="s-final" class="v num">—</div></div>
+    <div class="card" style="display:none"><div class="k">Soma alvo</div><div id="s-sumpct" class="v num">—</div><div class="hint">deve somar 100%</div></div>
     <div class="card"><div class="k" id="s-movk">A movimentar</div><div id="s-move" class="v num">—</div></div>
     <div id="s-leftcard" class="card alert hide"><div class="k" id="s-leftk">Não aplicado</div><div id="s-left" class="v num warn">—</div></div>
   </div>
 
+  <details class="how" id="tags-section">
+    <summary>▸ Tags</summary>
+    <div style="padding:10px 16px">
+      <div id="tagchips" class="chips"></div>
+    </div>
+  </details>
   <div class="toolbar">
-    <h2>Tags</h2>
-    <div id="tagchips" class="chips"></div>
     <div class="spacer"></div>
     <div style="position:relative">
       <button id="colpicker-btn" class="btn ghost sm">Colunas ▾</button>
@@ -882,6 +875,7 @@ function recalc(){
   // resumo
   $("s-current").textContent=fmtBRL(R.totalCurrent);
   $("s-final").textContent=fmtBRL(R.totalFinal);
+  $("total-final-card").style.display = state.cashFlow ? "" : "none";
   const sp=$("s-sumpct"); sp.textContent=fmtPct(R.sumPct, (R.sumPct%1===0?0:2));
   sp.className="v num"+(Math.abs(R.sumPct-100)>0.009?" warn":"");
   const mv=$("s-move"); mv.textContent=fmtBRL(R.move);

@@ -214,7 +214,7 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
 .order-empty{color:var(--muted);font-size:13px;padding:16px 12px}
 .order-summary{font-size:12px;color:var(--muted);margin-bottom:0;border-top:1px solid var(--line);padding-top:10px}
 /* history modal */
-.hist-modal{width:min(920px,96vw)}
+.hist-modal{width:min(1058px,96vw)}
 .hist-tabs{display:flex;gap:2px;margin:14px 0 0;border-bottom:1px solid var(--line)}
 .hist-tab{background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--muted);font-size:13px;font-family:inherit;font-weight:500;padding:8px 18px;cursor:pointer;transition:color .15s}
 .hist-tab:hover{color:var(--ink)}
@@ -230,17 +230,18 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
 .pie-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:12px;font-family:inherit;cursor:pointer;border:1.5px solid var(--line);background:none;color:var(--muted);font-weight:500;transition:background .15s,color .15s,border-color .15s}
 .pie-chip.on{background:var(--teal);border-color:var(--teal);color:#0d1b22;font-weight:600}
 .pie-hint{text-align:center;padding:32px 20px;color:var(--muted);font-size:13px}
-.pie-wrap{display:flex;align-items:center;gap:28px;min-height:300px}
-.pie-canvas-box{position:relative;flex:0 0 280px;height:280px}
-.pie-legend{flex:1;min-width:0}
-.pie-legend table{width:100%;border-collapse:collapse;font-size:13px}
-.pie-legend th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:0 8px 8px;text-align:left}
+.pie-wrap{display:flex;align-items:center;gap:24px;min-height:280px;width:100%;box-sizing:border-box;overflow:hidden}
+.pie-canvas-box{position:relative;flex:0 0 240px;height:240px}
+.pie-legend{flex:1;min-width:0;overflow:hidden}
+.pie-legend table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.pie-legend col.col-tag{width:38%}.pie-legend col.col-val{width:26%}.pie-legend col.col-grp{width:18%}.pie-legend col.col-tot{width:18%}
+.pie-legend th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:0 8px 8px;text-align:left;overflow:hidden;white-space:nowrap}
 .pie-legend th.r{text-align:right}
-.pie-legend td{padding:7px 8px;border-top:1px solid var(--line-soft);vertical-align:middle}
+.pie-legend td{padding:7px 8px;border-top:1px solid var(--line-soft);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pie-legend td.r{text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)}
 .pie-legend td.tag-name{display:flex;align-items:center;gap:8px;font-weight:500}
 .pie-dot{display:inline-block;width:11px;height:11px;border-radius:50%;flex-shrink:0}
-.pie-legend tr:hover td{background:#1b242d}
+.pie-legend tr.pie-row-active td{background:#1b242d}
 thead th[data-col]{cursor:grab;user-select:none}
 thead th[data-col]:active{cursor:grabbing}
 thead th[data-col].col-dragging{opacity:.35}
@@ -1183,22 +1184,41 @@ function renderPieChart(){
 
   // tabela de legenda visível permanentemente
   const leg=$("pie-legend");
-  let rows=tagValues.map((t,i)=>{
-    const pctGrp=groupTotal>0?t.val/groupTotal*100:0;
-    const pctTot=totalPortfolio>0?t.val/totalPortfolio*100:0;
-    return `<tr>
-      <td class="tag-name"><span class="pie-dot" style="background:${colors[i]}"></span>${escapeHtml(t.tag)}</td>
-      <td class="r">${fmtBRL(t.val)}</td>
-      <td class="r">${pctGrp.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}%</td>
-      <td class="r">${pctTot.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}%</td>
-    </tr>`;
-  }).join("");
   leg.innerHTML=`<table>
+    <colgroup><col class="col-tag"><col class="col-val"><col class="col-grp"><col class="col-tot"></colgroup>
     <thead><tr>
       <th>Tag</th><th class="r">Valor</th><th class="r">% Grupo</th><th class="r">% Carteira</th>
     </tr></thead>
-    <tbody>${rows}</tbody>
+    <tbody id="pie-legend-tbody"></tbody>
   </table>`;
+  const tbody=$("pie-legend-tbody");
+  tagValues.forEach((t,i)=>{
+    const pctGrp=groupTotal>0?t.val/groupTotal*100:0;
+    const pctTot=totalPortfolio>0?t.val/totalPortfolio*100:0;
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td class="tag-name"><span class="pie-dot" style="background:${colors[i]}"></span>${escapeHtml(t.tag)}</td>
+      <td class="r">${fmtBRL(t.val)}</td>
+      <td class="r">${pctGrp.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}%</td>
+      <td class="r">${pctTot.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}%</td>`;
+    tr.addEventListener("mouseenter",()=>{
+      tr.classList.add("pie-row-active");
+      if(_chartPie){
+        const canvas=$("chart-pie-tags");
+        _chartPie.setActiveElements([{datasetIndex:0,index:i}]);
+        _chartPie.tooltip.setActiveElements([{datasetIndex:0,index:i}],{x:canvas.offsetWidth/2,y:canvas.offsetHeight/2});
+        _chartPie.update("none");
+      }
+    });
+    tr.addEventListener("mouseleave",()=>{
+      tr.classList.remove("pie-row-active");
+      if(_chartPie){
+        _chartPie.setActiveElements([]);
+        _chartPie.tooltip.setActiveElements([],{x:0,y:0});
+        _chartPie.update("none");
+      }
+    });
+    tbody.appendChild(tr);
+  });
 }
 
 function destroyCharts(){ if(_chartTotal){_chartTotal.destroy();_chartTotal=null;} if(_chartAssets){_chartAssets.destroy();_chartAssets=null;} if(_chartPie){_chartPie.destroy();_chartPie=null;} }

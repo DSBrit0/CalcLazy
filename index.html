@@ -230,8 +230,17 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
 .pie-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:12px;font-family:inherit;cursor:pointer;border:1.5px solid var(--line);background:none;color:var(--muted);font-weight:500;transition:background .15s,color .15s,border-color .15s}
 .pie-chip.on{background:var(--teal);border-color:var(--teal);color:#0d1b22;font-weight:600}
 .pie-hint{text-align:center;padding:32px 20px;color:var(--muted);font-size:13px}
-.pie-wrap{position:relative;height:340px;display:flex;align-items:center;justify-content:center}
-.pie-wrap canvas{max-height:340px}
+.pie-wrap{display:flex;align-items:center;gap:28px;min-height:300px}
+.pie-canvas-box{position:relative;flex:0 0 280px;height:280px}
+.pie-legend{flex:1;min-width:0}
+.pie-legend table{width:100%;border-collapse:collapse;font-size:13px}
+.pie-legend th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:0 8px 8px;text-align:left}
+.pie-legend th.r{text-align:right}
+.pie-legend td{padding:7px 8px;border-top:1px solid var(--line-soft);vertical-align:middle}
+.pie-legend td.r{text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.pie-legend td.tag-name{display:flex;align-items:center;gap:8px;font-weight:500}
+.pie-dot{display:inline-block;width:11px;height:11px;border-radius:50%;flex-shrink:0}
+.pie-legend tr:hover td{background:#1b242d}
 thead th[data-col]{cursor:grab;user-select:none}
 thead th[data-col]:active{cursor:grabbing}
 thead th[data-col].col-dragging{opacity:.35}
@@ -381,7 +390,8 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
       <div id="pie-tag-chips" class="pie-tag-chips"></div>
       <div id="pie-hint" class="pie-hint">Selecione ao menos 2 tags para gerar o gráfico.</div>
       <div id="pie-wrap" class="pie-wrap hide">
-        <canvas id="chart-pie-tags"></canvas>
+        <div class="pie-canvas-box"><canvas id="chart-pie-tags"></canvas></div>
+        <div id="pie-legend" class="pie-legend"></div>
       </div>
     </div>
     <div id="hist-empty" class="hist-empty hide">
@@ -1150,7 +1160,7 @@ function renderPieChart(){
     options:{
       responsive:true, maintainAspectRatio:false, animation:{duration:300},
       plugins:{
-        legend:{ display:true, position:"right", labels:{color:"#8a99a6",font:{size:12},padding:14,boxWidth:14} },
+        legend:{ display:false },
         tooltip:{
           backgroundColor:"#1b242d", borderColor:"#28333d", borderWidth:1,
           titleColor:"#e8eef3", bodyColor:"#8a99a6",
@@ -1170,6 +1180,25 @@ function renderPieChart(){
       }
     }
   });
+
+  // tabela de legenda visível permanentemente
+  const leg=$("pie-legend");
+  let rows=tagValues.map((t,i)=>{
+    const pctGrp=groupTotal>0?t.val/groupTotal*100:0;
+    const pctTot=totalPortfolio>0?t.val/totalPortfolio*100:0;
+    return `<tr>
+      <td class="tag-name"><span class="pie-dot" style="background:${colors[i]}"></span>${escapeHtml(t.tag)}</td>
+      <td class="r">${fmtBRL(t.val)}</td>
+      <td class="r">${pctGrp.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}%</td>
+      <td class="r">${pctTot.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}%</td>
+    </tr>`;
+  }).join("");
+  leg.innerHTML=`<table>
+    <thead><tr>
+      <th>Tag</th><th class="r">Valor</th><th class="r">% Grupo</th><th class="r">% Carteira</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 function destroyCharts(){ if(_chartTotal){_chartTotal.destroy();_chartTotal=null;} if(_chartAssets){_chartAssets.destroy();_chartAssets=null;} if(_chartPie){_chartPie.destroy();_chartPie=null;} }

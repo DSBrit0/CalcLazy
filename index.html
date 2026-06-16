@@ -249,6 +249,14 @@ thead th[data-col].col-dragging{opacity:.35}
 thead th[data-col].col-drag-over-left{box-shadow:inset 3px 0 0 var(--teal)}
 thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
 
+/* exclude-from-rebalancing column */
+.skip-col-th{width:32px;text-align:center;padding:5px 6px;vertical-align:bottom}
+.skip-count{display:block;font-size:10px;font-family:var(--mono);font-weight:700;color:var(--amber);line-height:1;min-height:13px;margin-bottom:3px}
+.skip-cb{accent-color:var(--amber);width:14px;height:14px;cursor:pointer;display:block;margin:0 auto}
+.row-excluded{opacity:0.35}
+.row-excluded:hover{opacity:0.6!important}
+.row-excluded .cellinput{pointer-events:none}
+
 @media (max-width:640px){
   .card .v{font-size:18px}
   .brand h1{font-size:18px}
@@ -338,13 +346,13 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th class="drag-col"></th><th data-col="name">Ativo</th><th data-col="account">Conta</th><th data-col="cnpj">CNPJ</th><th class="tagcell" data-col="tags">Tags</th>
+        <th class="drag-col"></th><th class="skip-col-th" title="Excluir do rebalanceamento"><span id="skip-count" class="skip-count"></span><input type="checkbox" id="skip-all-cb" class="skip-cb" title="Excluir/incluir todos"></th><th data-col="name">Ativo</th><th data-col="account">Conta</th><th data-col="cnpj">CNPJ</th><th class="tagcell" data-col="tags">Tags</th>
         <th class="r" data-col="targetPct">Alvo %</th><th class="r" data-col="current">Atual R$</th><th class="r" data-col="minMove">Mín. mov.</th>
         <th class="r" data-col="tv">Alvo R$</th><th data-col="dev">Desvio</th><th class="r" data-col="devRel">Vs. Média</th><th class="r" data-col="driftShare">Drift %</th><th class="r" data-col="amount">Comprar / Vender</th><th class="r" data-col="finalPct">Final %</th><th></th>
       </tr></thead>
       <tbody id="tbody"></tbody>
       <tfoot><tr>
-        <td></td><td class="lbl" data-col="name">Totais</td><td data-col="account"></td><td data-col="cnpj"></td><td data-col="tags"></td>
+        <td></td><td></td><td class="lbl" data-col="name">Totais</td><td data-col="account"></td><td data-col="cnpj"></td><td data-col="tags"></td>
         <td class="r" data-col="targetPct" id="f-pct">—</td><td class="r" data-col="current" id="f-cur">—</td><td data-col="minMove"></td>
         <td class="r" data-col="tv" id="f-tv">—</td><td data-col="dev"></td><td data-col="devRel"></td><td data-col="driftShare"></td><td class="r" data-col="amount" id="f-move">—</td><td class="r" data-col="finalPct" id="f-fin">100%</td><td></td>
       </tr></tfoot>
@@ -648,11 +656,32 @@ function applyMin(items, total, kind){ // kind: "buy" | "sell"
 function computeRebalance(assets, cashFlow){
   const totalCurrent=assets.reduce((s,a)=>s+parseNum(a.current),0);
   const totalFinal=totalCurrent+cashFlow;
-  const items=enrich(assets, totalFinal);
+
+  // separate active (included) from excluded assets
+  const activeAssets=assets.filter(a=>!a.excluded);
+  const activeCurrent=activeAssets.reduce((s,a)=>s+parseNum(a.current),0);
+  const activeFinal=activeCurrent+cashFlow;
+
+  // renormalize targets proportionally within active pool
+  const sumActivePct=activeAssets.reduce((s,a)=>s+parseNum(a.targetPct),0);
+  const normActive=activeAssets.map(a=>({
+    ...a, targetPct: sumActivePct>1e-9 ? parseNum(a.targetPct)/sumActivePct*100 : 0
+  }));
+
+  const items=enrich(normActive, activeFinal);
   const result={}; let level=null, leftover=0, direction="none";
   items.forEach(i=>result[i.id]={tv:i.tv, dev:i.dev, amount:0});
 
-  if(Math.abs(cashFlow)>1e-9 && totalFinal>0){
+  // excluded assets: compute dev against own target × totalFinal (informational display only)
+  assets.filter(a=>a.excluded).forEach(a=>{
+    const tp=parseNum(a.targetPct)/100;
+    const cur=parseNum(a.current);
+    const tv=tp*totalFinal;
+    const dev=tv>1e-9?cur/tv-1:0;
+    result[a.id]={tv, dev, amount:0};
+  });
+
+  if(Math.abs(cashFlow)>1e-9 && activeFinal>0){
     if(cashFlow>0){
       direction="buy";
       const {finalAmt, level:lv}=applyMin(items, cashFlow, "buy");
@@ -665,14 +694,14 @@ function computeRebalance(assets, cashFlow){
       const {finalAmt, level:lv}=applyMin(items, W, "sell");
       level=lv; let sold=0;
       items.forEach(i=>{ const x=finalAmt[i.id]||0; result[i.id].amount=-x; sold+=x; });
-      leftover=W-sold; // não resgatado
+      leftover=W-sold;
     }
   }
   let move=0;
-  items.forEach(i=>{
-    const r=result[i.id];
-    r.finalValue=parseNum(assetById(i.id).current)+r.amount;
-    r.finalPct = totalFinal>0 ? r.finalValue/totalFinal : 0;
+  assets.forEach(a=>{
+    const r=result[a.id]; if(!r) return;
+    r.finalValue=parseNum(a.current)+r.amount;
+    r.finalPct=totalFinal>0?r.finalValue/totalFinal:0;
     move+=Math.abs(r.amount);
   });
   const sumPct=assets.reduce((s,a)=>s+parseNum(a.targetPct),0);
@@ -712,7 +741,7 @@ function applyColWidths(){
   const tbl=document.querySelector(".tablewrap table");
   if(!tbl) return;
   tbl.style.tableLayout="fixed";
-  let total=66; // drag(26) + del(40) fixed
+  let total=98; // drag(26) + skip(32) + del(40) fixed
   document.querySelectorAll("thead th[data-col]").forEach(th=>{
     const id=th.dataset.col;
     if(!COL_WIDTHS_DEFAULT.hasOwnProperty(id)) return;
@@ -829,6 +858,7 @@ function renderTable(){
   state.assets.forEach(a=>{
     if(!rowVisible(a)) return;
     const tr=el("tr"); tr.dataset.id=a.id;
+    if(a.excluded) tr.classList.add("row-excluded");
     // drag handle
     const grip=el("td","drag-handle","⠿"); grip.title="Arrastar para reordenar";
     tr.addEventListener("mousedown", e=>{ tr.draggable=e.target===grip||grip.contains(e.target); });
@@ -838,6 +868,8 @@ function renderTable(){
     tr.addEventListener("dragleave", e=>{ if(!tr.contains(e.relatedTarget)) tr.classList.remove("drag-over-top"); });
     tr.addEventListener("drop", e=>{ e.preventDefault(); tr.classList.remove("drag-over-top"); if(!dragSrcId||dragSrcId===a.id) return; const si=state.assets.findIndex(x=>x.id===dragSrcId), di=state.assets.findIndex(x=>x.id===a.id); if(si<0||di<0) return; const [mv]=state.assets.splice(si,1); state.assets.splice(di,0,mv); markDirty(true); fullRender(); });
     tr.appendChild(grip);
+    // skip/exclude checkbox
+    const skipTd=el("td","skip-col-th"); const skipCb=el("input","skip-cb"); skipCb.type="checkbox"; skipCb.checked=!!a.excluded; skipCb.title="Excluir do rebalanceamento"; skipCb.addEventListener("change",()=>{ a.excluded=skipCb.checked; markDirty(true); fullRender(); }); skipTd.appendChild(skipCb); tr.appendChild(skipTd);
     const nameTd=tdInput(a.id,"name","Nome do ativo",a.name,"name"); nameTd.dataset.col="name"; tr.appendChild(nameTd);
     let _t;
     _t=tdInput(a.id,"account","banco · liquidez",a.account,"",("acct")); _t.dataset.col="account"; tr.appendChild(_t);
@@ -921,8 +953,8 @@ function recalc(){
   const MAXABS=0.30;
   const pos=d=>50+Math.max(-1,Math.min(1,d/MAXABS))*50;
 
-  // pré-computa métricas relativas usando apenas ativos visíveis (respeita filtro de tags)
-  const visAssets=state.assets.filter(rowVisible);
+  // pré-computa métricas relativas usando apenas ativos visíveis e não-excluídos
+  const visAssets=state.assets.filter(a=>rowVisible(a)&&!a.excluded);
   let meanDev=0, totalAbsDrift=0;
   const absDriftMap={};
   if(visAssets.length>0){
@@ -944,24 +976,24 @@ function recalc(){
       fill.style.left=lo+"%"; fill.style.width=(hi-lo)+"%";
       fill.className="bar-fill "+(r.dev<0?"under":"over"); }
     const mark=$("c-mark-"+a.id);
-    if(mark){ if(R.level==null){ mark.style.opacity="0"; } else { mark.style.opacity=".85"; mark.style.left=pos(R.level)+"%"; } }
+    if(mark){ if(R.level==null||a.excluded){ mark.style.opacity="0"; } else { mark.style.opacity=".85"; mark.style.left=pos(R.level)+"%"; } }
     const amt=$("c-amt-"+a.id);
     if(amt){
-      if(Math.abs(r.amount)<0.005){ amt.className="amt zero"; amt.innerHTML="—"; }
+      if(a.excluded||Math.abs(r.amount)<0.005){ amt.className="amt zero"; amt.innerHTML="—"; }
       else if(r.amount>0){ amt.className="amt buy"; amt.innerHTML=`${fmtBRL(r.amount)}<small>comprar</small>`; }
       else { amt.className="amt sell"; amt.innerHTML=`${fmtBRL(-r.amount)}<small>vender</small>`; }
     }
-    // Vs. Média: quanto este ativo desvia vs. a média dos ativos visíveis
+    // Vs. Média: quanto este ativo desvia vs. a média dos ativos visíveis e não-excluídos
     const devRelEl=$("c-devr-"+a.id);
     if(devRelEl){
-      const devRel=r.dev-meanDev;
-      devRelEl.textContent=(devRel>0?"+":"")+fmtPct(devRel*100,1);
-      devRelEl.style.color=devRel<-0.001?"var(--teal)":devRel>0.001?"var(--amber)":"var(--muted)";
+      if(a.excluded){ devRelEl.textContent="—"; devRelEl.style.color="var(--faint)"; }
+      else{ const devRel=r.dev-meanDev; devRelEl.textContent=(devRel>0?"+":"")+fmtPct(devRel*100,1); devRelEl.style.color=devRel<-0.001?"var(--teal)":devRel>0.001?"var(--amber)":"var(--muted)"; }
     }
-    // Drift %: participação deste ativo no desvio absoluto total dos visíveis
+    // Drift %: participação deste ativo no desvio absoluto total dos visíveis e não-excluídos
     const driftEl=$("c-drft-"+a.id);
     if(driftEl){
-      if(totalAbsDrift<1e-9){ driftEl.textContent="—"; driftEl.style.color="var(--muted)"; }
+      if(a.excluded){ driftEl.textContent="—"; driftEl.style.color="var(--faint)"; }
+      else if(totalAbsDrift<1e-9){ driftEl.textContent="—"; driftEl.style.color="var(--muted)"; }
       else{ const share=(absDriftMap[a.id]||0)/totalAbsDrift*100; driftEl.textContent=fmtPct(share,1); driftEl.style.color="var(--muted)"; }
     }
   });
@@ -969,6 +1001,10 @@ function recalc(){
   const applyBtn=$("btn-apply"); if(applyBtn){ const hasFlow=Math.abs(state.cashFlow)>0.005; applyBtn.disabled=!hasFlow; applyBtn.textContent=hasFlow?(R.direction==="sell"?"✓ Confirmar resgate":"✓ Confirmar aporte"):"✓ Aplicar rebalanceamento"; }
   const undoBtn=$("btn-undo"); if(undoBtn){ undoBtn.disabled=!lastApplySnapshot; }
   const orderBtn=$("btn-order"); if(orderBtn){ const hasMovements=Object.values(R.result).some(r=>Math.abs(r.amount)>0.005); orderBtn.disabled=!hasMovements; }
+  // atualiza contador de excluídos e estado do checkbox de header
+  const excl=state.assets.filter(a=>a.excluded).length;
+  const sc=$("skip-count"); if(sc) sc.textContent=excl>0?String(excl):"";
+  const sac=$("skip-all-cb"); if(sac){ sac.indeterminate=excl>0&&excl<state.assets.length; sac.checked=state.assets.length>0&&excl===state.assets.length; }
 }
 
 /* ============================================================
@@ -1019,7 +1055,7 @@ $("flow").addEventListener("blur", e=>{
   e.target.value = v ? fmtBRL(v) : "";
   recalc();
 });
-$("addrow").onclick=()=>{ state.assets.push({id:uid(),name:"",account:"",targetPct:"",current:"",minMove:"",tags:[]}); markDirty(true); fullRender(); };
+$("addrow").onclick=()=>{ state.assets.push({id:uid(),name:"",account:"",targetPct:"",current:"",minMove:"",tags:[],excluded:false}); markDirty(true); fullRender(); };
 $("clearfilter").onclick=()=>{ activeFilters.clear(); fullRender(); };
 
 /* ============================================================
@@ -1456,6 +1492,7 @@ async function unlock(){
       clean.current   = (typeof a.current==="number"  ||typeof a.current==="string")   ? a.current   : "";
       clean.minMove   = (typeof a.minMove==="number"  ||typeof a.minMove==="string")   ? a.minMove   : "";
       clean.tags      = Array.isArray(a.tags) ? a.tags.filter(t=>typeof t==="string"&&t.length<200) : [];
+      clean.excluded  = a.excluded===true;
       return clean;
     });
     _unlockAttempts=0;
@@ -1526,6 +1563,11 @@ $("o-retry").onclick=init;
 })();
 $("colpicker-btn").addEventListener("click", e=>{ e.stopPropagation(); $("colpicker").classList.toggle("hide"); });
 document.addEventListener("click", ()=>$("colpicker").classList.add("hide"));
+$("skip-all-cb").addEventListener("change", e=>{
+  const excl=e.target.checked;
+  state.assets.forEach(a=>a.excluded=excl);
+  markDirty(true); fullRender();
+});
 initColResize();
 initColDragHeaders();
 

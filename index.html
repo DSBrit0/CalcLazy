@@ -155,6 +155,9 @@ td.r{text-align:right}
 .tagadd:focus{border-color:var(--teal);border-style:solid}
 .rowdel{background:transparent;border:none;color:var(--faint);font-size:16px;line-height:1;padding:4px 6px;border-radius:6px}
 .rowdel:hover{color:var(--danger);background:#1c1416}
+.sel-col-th{width:26px;text-align:center;padding:5px 6px;vertical-align:bottom}
+.sel-cb{accent-color:var(--danger);width:14px;height:14px;cursor:pointer;display:block;margin:0 auto}
+.row-selected>td{background:#1c1011!important}
 .drag-col{width:26px}
 .drag-handle{color:var(--faint);padding:0 4px 0 10px;font-size:15px;cursor:grab;user-select:none;vertical-align:middle}
 .drag-handle:hover{color:var(--muted)}
@@ -346,13 +349,13 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th class="drag-col"></th><th class="skip-col-th" title="Excluir do rebalanceamento"><span id="skip-count" class="skip-count"></span><input type="checkbox" id="skip-all-cb" class="skip-cb" title="Excluir/incluir todos"></th><th data-col="name">Ativo</th><th data-col="account">Conta</th><th data-col="cnpj">CNPJ</th><th class="tagcell" data-col="tags">Tags</th>
+        <th class="drag-col"></th><th class="sel-col-th" title="Selecionar para excluir"><input type="checkbox" id="sel-all-cb" class="sel-cb" title="Selecionar todos visíveis"></th><th class="skip-col-th" title="Excluir do rebalanceamento"><span id="skip-count" class="skip-count"></span><input type="checkbox" id="skip-all-cb" class="skip-cb" title="Excluir/incluir todos"></th><th data-col="name">Ativo</th><th data-col="account">Conta</th><th data-col="cnpj">CNPJ</th><th class="tagcell" data-col="tags">Tags</th>
         <th class="r" data-col="targetPct">Alvo %</th><th class="r" data-col="current">Atual R$</th><th class="r" data-col="minMove">Mín. mov.</th>
         <th class="r" data-col="tv">Alvo R$</th><th data-col="dev">Desvio</th><th class="r" data-col="devRel">Vs. Média</th><th class="r" data-col="driftShare">Drift %</th><th class="r" data-col="amount">Comprar / Vender</th><th class="r" data-col="finalPct">Final %</th><th></th>
       </tr></thead>
       <tbody id="tbody"></tbody>
       <tfoot><tr>
-        <td></td><td></td><td class="lbl" data-col="name">Totais</td><td data-col="account"></td><td data-col="cnpj"></td><td data-col="tags"></td>
+        <td></td><td></td><td></td><td class="lbl" data-col="name">Totais</td><td data-col="account"></td><td data-col="cnpj"></td><td data-col="tags"></td>
         <td class="r" data-col="targetPct" id="f-pct">—</td><td class="r" data-col="current" id="f-cur">—</td><td data-col="minMove"></td>
         <td class="r" data-col="tv" id="f-tv">—</td><td data-col="dev"></td><td data-col="devRel"></td><td data-col="driftShare"></td><td class="r" data-col="amount" id="f-move">—</td><td class="r" data-col="finalPct" id="f-fin">100%</td><td></td>
       </tr></tfoot>
@@ -361,6 +364,7 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
 
   <div class="addrow">
     <button id="addrow" class="btn sm">+ Adicionar ativo</button>
+    <button id="btn-del-sel" class="btn ghost sm" disabled style="color:var(--danger);border-color:var(--danger);opacity:.4">🗑 Excluir selecionados</button>
     <button id="btn-order" class="btn ghost sm" disabled style="margin-left:auto">⊞ Ver movimentações</button>
     <button id="btn-undo" class="btn ghost sm" disabled>↩ Desfazer aporte</button>
     <button id="btn-apply" class="btn primary sm" disabled>✓ Aplicar rebalanceamento</button>
@@ -482,6 +486,7 @@ function loadVisibleCols(){
   return new Set(COLS.map(c=>c.id));
 }
 let visibleCols=loadVisibleCols();
+let selectedRows=new Set();
 function saveVisibleCols(){ try{ localStorage.setItem("calclazy.cols",JSON.stringify([...visibleCols])); }catch(e){} }
 function applyColVisibility(){
   COLS.forEach(c=>{
@@ -832,6 +837,7 @@ function fullRender(){
   applyColVisibility();
   applyColOrder();
   recalc();
+  updateSelState();
   markDirty(dirty);
 }
 
@@ -859,6 +865,7 @@ function renderTable(){
     if(!rowVisible(a)) return;
     const tr=el("tr"); tr.dataset.id=a.id;
     if(a.excluded) tr.classList.add("row-excluded");
+    if(selectedRows.has(a.id)) tr.classList.add("row-selected");
     // drag handle
     const grip=el("td","drag-handle","⠿"); grip.title="Arrastar para reordenar";
     tr.addEventListener("mousedown", e=>{ tr.draggable=e.target===grip||grip.contains(e.target); });
@@ -869,6 +876,7 @@ function renderTable(){
     tr.addEventListener("drop", e=>{ e.preventDefault(); tr.classList.remove("drag-over-top"); if(!dragSrcId||dragSrcId===a.id) return; const si=state.assets.findIndex(x=>x.id===dragSrcId), di=state.assets.findIndex(x=>x.id===a.id); if(si<0||di<0) return; const [mv]=state.assets.splice(si,1); state.assets.splice(di,0,mv); markDirty(true); fullRender(); });
     tr.appendChild(grip);
     // skip/exclude checkbox
+    const selTd=el("td","sel-col-th"); const selCb=el("input","sel-cb"); selCb.type="checkbox"; selCb.checked=selectedRows.has(a.id); selCb.title="Selecionar para excluir"; selCb.addEventListener("change",()=>{ if(selCb.checked) selectedRows.add(a.id); else selectedRows.delete(a.id); tr.classList.toggle("row-selected",selCb.checked); updateSelState(); }); selTd.appendChild(selCb); tr.appendChild(selTd);
     const skipTd=el("td","skip-col-th"); const skipCb=el("input","skip-cb"); skipCb.type="checkbox"; skipCb.checked=!!a.excluded; skipCb.title="Excluir do rebalanceamento"; skipCb.addEventListener("change",()=>{ a.excluded=skipCb.checked; markDirty(true); fullRender(); }); skipTd.appendChild(skipCb); tr.appendChild(skipTd);
     const nameTd=tdInput(a.id,"name","Nome do ativo",a.name,"name"); nameTd.dataset.col="name"; tr.appendChild(nameTd);
     let _t;
@@ -884,7 +892,7 @@ function renderTable(){
     _t=computedCell(`drft-${a.id}`,"r computed dim"); _t.dataset.col="driftShare"; tr.appendChild(_t);
     _t=amtCell(a.id); _t.dataset.col="amount"; tr.appendChild(_t);
     _t=computedCell(`fin-${a.id}`,"r computed dim"); _t.dataset.col="finalPct"; tr.appendChild(_t);
-    const del=el("td","r"); const b=el("button","rowdel","×"); b.title="Remover"; b.onclick=()=>{ state.assets=state.assets.filter(x=>x.id!==a.id); markDirty(true); fullRender(); }; del.appendChild(b);
+    const del=el("td","r"); const b=el("button","rowdel","×"); b.title="Remover"; b.onclick=()=>{ selectedRows.delete(a.id); state.assets=state.assets.filter(x=>x.id!==a.id); markDirty(true); fullRender(); }; del.appendChild(b);
     tr.appendChild(del);
     tb.appendChild(tr);
   });
@@ -1057,6 +1065,36 @@ $("flow").addEventListener("blur", e=>{
 });
 $("addrow").onclick=()=>{ state.assets.push({id:uid(),name:"",account:"",targetPct:"",current:"",minMove:"",tags:[],excluded:false}); markDirty(true); fullRender(); };
 $("clearfilter").onclick=()=>{ activeFilters.clear(); fullRender(); };
+function updateSelState(){
+  const btn=$("btn-del-sel");
+  if(btn){
+    const any=selectedRows.size>0;
+    btn.disabled=!any;
+    btn.style.opacity=any?"1":".4";
+    btn.textContent=any?"🗑 Excluir selecionados ("+selectedRows.size+")":"🗑 Excluir selecionados";
+  }
+  const sac=$("sel-all-cb");
+  if(sac){
+    const visible=state.assets.filter(a=>rowVisible(a));
+    const selCount=visible.filter(a=>selectedRows.has(a.id)).length;
+    sac.indeterminate=selCount>0&&selCount<visible.length;
+    sac.checked=visible.length>0&&selCount===visible.length;
+  }
+}
+$("sel-all-cb").addEventListener("change",e=>{
+  const checked=e.target.checked;
+  state.assets.filter(a=>rowVisible(a)).forEach(a=>{ if(checked) selectedRows.add(a.id); else selectedRows.delete(a.id); });
+  fullRender();
+});
+$("btn-del-sel").addEventListener("click",()=>{
+  if(selectedRows.size===0) return;
+  const count=selectedRows.size;
+  if(!confirm("Excluir "+count+" ativo"+(count>1?"s":"")+"? Essa ação não pode ser desfeita.")) return;
+  state.assets=state.assets.filter(a=>!selectedRows.has(a.id));
+  selectedRows.clear();
+  markDirty(true);
+  fullRender();
+});
 
 /* ============================================================
    PERSISTENCE FLOW

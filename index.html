@@ -105,6 +105,28 @@ input.txt:focus{border-color:var(--teal);box-shadow:0 0 0 3px #2dd4bf22}
 .v.pos{color:var(--teal)} .v.neg{color:var(--amber)} .v.warn{color:var(--warn)}
 .card.alert{border-color:#f0a04b66}
 
+/* goal card */
+.card.goal-card{padding:0;overflow:visible}
+.goal-halves{display:flex;min-height:74px}
+.goal-half{flex:1;padding:14px 16px}
+.goal-half+.goal-half{border-left:1px solid var(--line)}
+.goal-meta-row{display:flex;align-items:center;gap:6px;margin-top:6px}
+.goal-meta-row input{flex:1;min-width:0;background:transparent;border:none;color:var(--ink);font-family:var(--mono);font-size:21px;font-weight:600;outline:none;padding:0;letter-spacing:-.3px}
+.goal-meta-row input::placeholder{color:var(--faint);font-weight:400;font-size:18px}
+.goal-cfg-btn{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 4px;border-radius:5px;line-height:1;flex-shrink:0}
+.goal-cfg-btn:hover{color:var(--ink);background:var(--surface-2)}
+.goal-deadline{font-size:11px;color:var(--faint);margin-top:3px}
+.goal-growth{border-top:1px solid var(--line-soft,var(--line));padding:8px 16px;font-size:12px;color:var(--muted)}
+.goal-growth strong{color:var(--teal);font-family:var(--mono)}
+.goal-growth.achieved strong{color:var(--teal)}
+.goal-growth.expired strong{color:var(--amber)}
+.goal-popover{position:absolute;top:calc(100% + 6px);right:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;min-width:220px;box-shadow:0 16px 40px -16px #000;z-index:50}
+.goal-popover label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
+.goal-popover label+label{margin-top:10px}
+.goal-popover input{width:100%;box-sizing:border-box;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;color:var(--ink);font-size:13px;padding:6px 8px;outline:none;font-family:var(--mono)}
+.goal-popover input:focus{border-color:var(--teal)}
+.goal-popover-actions{display:flex;justify-content:flex-end;margin-top:12px}
+
 /* tag filter bar */
 .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0 10px}
 .toolbar h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0;font-weight:600}
@@ -322,7 +344,33 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
       <input id="flow" class="num" type="text" inputmode="decimal" placeholder="0,00">
       <div class="hint">positivo = aportar · negativo = resgatar</div>
     </div>
-    <div class="card"><div class="k">Total atual</div><div id="s-current" class="v num">—</div></div>
+    <div class="card goal-card">
+      <div class="goal-halves">
+        <div class="goal-half">
+          <div class="k">Total atual</div>
+          <div id="s-current" class="v num">—</div>
+        </div>
+        <div class="goal-half" style="position:relative">
+          <div class="k">Meta</div>
+          <div class="goal-meta-row">
+            <input id="goal-val" type="text" inputmode="decimal" placeholder="R$ 0,00">
+            <button id="goal-cfg-btn" class="goal-cfg-btn" title="Configurar meta e prazo">⚙</button>
+          </div>
+          <div id="goal-deadline" class="goal-deadline"></div>
+          <!-- popover -->
+          <div id="goal-popover" class="goal-popover hide">
+            <label>Valor alvo</label>
+            <input id="goal-pop-val" type="text" inputmode="decimal" placeholder="R$ 0,00">
+            <label>Prazo (MM/ANO)</label>
+            <input id="goal-pop-date" type="text" inputmode="numeric" placeholder="12/2027" maxlength="7">
+            <div class="goal-popover-actions">
+              <button id="goal-pop-save" class="btn primary sm">Salvar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="goal-growth" class="goal-growth hide"></div>
+    </div>
     <div id="total-final-card" class="card" style="display:none"><div class="k">Total final</div><div id="s-final" class="v num">—</div></div>
     <div id="s-leftcard" class="card alert hide"><div class="k" id="s-leftk">Não aplicado</div><div id="s-left" class="v num warn">—</div></div>
     <!-- elementos ocultos usados pelo JS — não afetam o layout pois display:none retira do fluxo do grid -->
@@ -1012,7 +1060,113 @@ function recalc(){
   const excl=state.assets.filter(a=>a.excluded).length;
   const sc=$("skip-count"); if(sc) sc.textContent=excl>0?String(excl):"";
   const sac=$("skip-all-cb"); if(sac){ sac.indeterminate=excl>0&&excl<state.assets.length; sac.checked=state.assets.length>0&&excl===state.assets.length; }
+  updateGoalGrowth(R.totalCurrent);
 }
+
+/* ============================================================
+   GOAL / META CARD
+   ============================================================ */
+const GOAL_KEY="calclazy.goal";
+let goalData=(()=>{ try{ return JSON.parse(localStorage.getItem(GOAL_KEY))||{}; }catch{ return {}; } })();
+function saveGoal(){ localStorage.setItem(GOAL_KEY,JSON.stringify(goalData)); }
+
+function monthsUntil(mmAnno){
+  const parts=(mmAnno||"").split("/");
+  if(parts.length!==2) return null;
+  const m=parseInt(parts[0],10), y=parseInt(parts[1].length===2?"20"+parts[1]:parts[1],10);
+  if(!isFinite(m)||!isFinite(y)||m<1||m>12||y<2000) return null;
+  const now=new Date();
+  return (y*12+m)-(now.getFullYear()*12+(now.getMonth()+1));
+}
+
+function updateGoalGrowth(totalCurrent){
+  const gv=$("goal-growth");
+  const val=parseNum(goalData.val||"");
+  const date=(goalData.date||"").trim();
+  if(!val||!date){ gv.classList.add("hide"); return; }
+  const months=monthsUntil(date);
+  gv.classList.remove("hide");
+  if(months===null){ gv.innerHTML="Prazo inválido."; gv.className="goal-growth"; return; }
+  if(totalCurrent>=val){
+    gv.innerHTML=`🎉 <strong>Meta atingida!</strong> Patrimônio atual supera a meta configurada.`;
+    gv.className="goal-growth achieved"; return;
+  }
+  if(months<=0){
+    gv.innerHTML=`⚠️ Data expirada — faltam <strong>${fmtBRL(val-totalCurrent)}</strong> para atingir a meta.`;
+    gv.className="goal-growth expired"; return;
+  }
+  const monthly=(val-totalCurrent)/months;
+  gv.innerHTML=`Sua carteira deverá crescer no mínimo <strong>${fmtBRL(monthly)}/mês</strong> para atingir a meta em ${months} ${months===1?"mês":"meses"}.`;
+  gv.className="goal-growth";
+}
+
+(function initGoalCard(){
+  const v=parseNum(goalData.val||"");
+  if(v) $("goal-val").value=fmtBRL(v);
+  const d=goalData.date||"";
+  if(d) $("goal-deadline").textContent="Prazo: "+d;
+})();
+
+let goalPopOpen=false;
+function openGoalPop(){
+  const pop=$("goal-popover");
+  $("goal-pop-val").value=goalData.val?fmtBRL(parseNum(goalData.val)):"";
+  $("goal-pop-date").value=goalData.date||"";
+  pop.classList.remove("hide");
+  goalPopOpen=true;
+  requestAnimationFrame(()=>$("goal-pop-val").focus());
+}
+function closeGoalPop(){ $("goal-popover").classList.add("hide"); goalPopOpen=false; }
+
+$("goal-cfg-btn").addEventListener("click",e=>{
+  e.stopPropagation();
+  if(goalPopOpen) closeGoalPop(); else openGoalPop();
+});
+
+$("goal-pop-save").addEventListener("click",()=>{
+  goalData.val=$("goal-pop-val").value;
+  goalData.date=$("goal-pop-date").value.trim();
+  saveGoal();
+  const v=parseNum(goalData.val);
+  $("goal-val").value=v?fmtBRL(v):"";
+  $("goal-deadline").textContent=goalData.date?"Prazo: "+goalData.date:"";
+  closeGoalPop();
+  updateGoalGrowth(state.assets.reduce((s,a)=>s+parseNum(a.current),0));
+});
+
+$("goal-pop-val").addEventListener("focus",e=>{
+  const v=parseNum(e.target.value);
+  if(v) e.target.value=v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  requestAnimationFrame(()=>e.target.select());
+});
+$("goal-pop-val").addEventListener("blur",e=>{
+  const v=parseNum(e.target.value);
+  if(v) e.target.value=fmtBRL(v);
+});
+$("goal-pop-date").addEventListener("input",e=>{
+  let v=e.target.value.replace(/\D/g,"");
+  if(v.length>2) v=v.slice(0,2)+"/"+v.slice(2,6);
+  e.target.value=v;
+});
+
+// edição direta no campo de meta (sem abrir popover)
+$("goal-val").addEventListener("focus",e=>{
+  const v=parseNum(e.target.value);
+  if(v) e.target.value=v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  requestAnimationFrame(()=>e.target.select());
+});
+$("goal-val").addEventListener("blur",e=>{
+  const v=parseNum(e.target.value);
+  goalData.val=v?fmtBRL(v):"";
+  saveGoal();
+  e.target.value=v?fmtBRL(v):"";
+  updateGoalGrowth(state.assets.reduce((s,a)=>s+parseNum(a.current),0));
+});
+
+document.addEventListener("click",e=>{
+  if(goalPopOpen&&!$("goal-popover").contains(e.target)&&e.target!==$("goal-cfg-btn")) closeGoalPop();
+});
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&goalPopOpen) closeGoalPop(); });
 
 /* ============================================================
    STATE EVENTS

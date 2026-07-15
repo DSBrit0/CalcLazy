@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/chart.js@4.4.4/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.github.com https://cdn.jsdelivr.net; img-src data:; base-uri 'self'; form-action 'none'">
-<title>CalcLazy — Rebalanceamento Lazy</title>
+<title>Carteira Balanceada</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -272,7 +272,7 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
 <!-- ============ LOCK / SETUP / OFFLINE GATE ============ -->
 <div id="gate" class="gate">
   <div class="gate-card">
-    <div class="brand"><div class="logo"></div><div><h1>CalcLazy</h1></div></div>
+    <div class="brand"><div class="logo"></div><div><h1>Carteira Balanceada</h1></div></div>
 
     <div id="gate-connecting">
       <p class="gate-lead" id="conn-lead">Conectando ao repositório…</p>
@@ -284,6 +284,7 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
 
     <!-- UNLOCK -->
     <div id="gate-unlock" class="hide">
+      <label class="fld"><span>E-mail</span><input class="txt" type="email" autocomplete="email" placeholder="seu@email.com"></label>
       <label class="fld"><span>Senha</span><input id="u-pass" class="txt" type="password" autocomplete="current-password" placeholder="••••••••"></label>
       <div class="btn-row"><button id="u-go" class="btn primary">Desbloquear</button></div>
       <div id="u-msg" class="gate-msg"></div>
@@ -305,7 +306,7 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
 <!-- ============ APP ============ -->
 <div id="app" class="app hide">
   <div class="topbar">
-    <div class="brand"><div class="logo"></div><div><h1>CalcLazy</h1><div class="sub">Rebalanceamento lazy ótimo</div></div></div>
+    <div class="brand"><div class="logo"></div><div><h1>Carteira Balanceada</h1><div class="sub">Rebalanceamento Inteligente de Fundos de Investimento</div></div></div>
     <div class="sync"><span id="syncdot" class="dot off"></span><span id="synctext">offline</span></div>
     <div class="top-actions">
       <button id="btn-save" class="btn primary sm">Salvar</button>

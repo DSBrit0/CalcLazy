@@ -297,8 +297,7 @@ tr.fund-panel-row td{background:var(--bg);padding:10px 14px 14px 44px;border-bot
 .fund-open-toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer;user-select:none}
 .fund-open-toggle input{accent-color:var(--teal);cursor:pointer}
 .fund-del{background:none;border:none;color:var(--faint);cursor:pointer;font-size:13px;padding:4px 6px;border-radius:6px}
-.fund-del:hover:not(:disabled){color:var(--danger);background:#1c1416}
-.fund-del:disabled{opacity:.25;cursor:not-allowed}
+.fund-del:hover{color:var(--danger);background:#1c1416}
 .fund-add-btn{align-self:flex-start;background:none;border:1px dashed var(--line);color:var(--muted);border-radius:8px;padding:6px 12px;font-size:12.5px;cursor:pointer;font-family:inherit}
 .fund-add-btn:hover{color:var(--ink);border-color:var(--teal)}
 
@@ -822,7 +821,14 @@ function addFund(assetId){
   markDirty(true); fullRender();
 }
 function removeFund(assetId, fundId){
-  const a=assetById(assetId); if(!a||!a.funds||a.funds.length<=1) return;
+  const a=assetById(assetId); if(!a||!a.id) return;
+  if(!a.funds||a.funds.length<=1){
+    /* último fundo da caixinha: remover o fundo esvaziaria a caixinha,
+       então remove a caixinha inteira (mesma ação do menu de contexto) */
+    state.assets=state.assets.filter(x=>x.id!==assetId);
+    markDirty(true); fullRender();
+    return;
+  }
   a.funds=a.funds.filter(f=>f.id!==fundId);
   syncAssetCurrent(a);
   markDirty(true); fullRender();
@@ -1075,8 +1081,8 @@ function renderFundPanelRow(a){
     const openCb=el("input"); openCb.type="checkbox"; openCb.checked=!!f.open;
     openCb.addEventListener("change",()=>setFundOpen(a.id, f.id, openCb.checked));
     openLbl.appendChild(openCb); openLbl.appendChild(document.createTextNode(" aceita aporte"));
-    const delBtn=el("button","fund-del","🗑"); delBtn.type="button"; delBtn.title="Remover fundo";
-    delBtn.disabled=a.funds.length<=1;
+    const delBtn=el("button","fund-del","🗑"); delBtn.type="button";
+    delBtn.title=a.funds.length<=1?"Remover esta caixinha (é o último fundo)":"Remover fundo";
     delBtn.addEventListener("click",()=>removeFund(a.id, f.id));
     item.appendChild(nameInp); item.appendChild(acctInp); item.appendChild(cnpjInp); item.appendChild(curInp); item.appendChild(openLbl); item.appendChild(delBtn);
     panel.appendChild(item);

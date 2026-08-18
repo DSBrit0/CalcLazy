@@ -283,10 +283,11 @@ thead th[data-col].col-drag-over-right{box-shadow:inset -3px 0 0 var(--teal)}
 .row-excluded .cellinput{pointer-events:none}
 
 /* caixinha: expandir para ver fundos */
-.expand-col{width:24px;text-align:center;padding:5px 2px;vertical-align:middle}
+.expand-col{width:24px;text-align:center;padding:5px 2px;vertical-align:middle;position:relative}
 .expand-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:4px 6px;border-radius:5px;transition:transform .15s,color .15s;line-height:1}
 .expand-btn:hover{color:var(--ink);background:var(--surface-2)}
 .expand-btn.open{transform:rotate(90deg);color:var(--teal)}
+.expand-badge{position:absolute;top:2px;right:0;min-width:11px;height:11px;padding:0 2px;border-radius:999px;background:var(--teal);color:#0d1b22;font-size:8px;font-weight:700;line-height:11px;text-align:center;pointer-events:none;font-family:var(--sans)}
 .fund-warn{margin-left:6px;color:var(--amber);cursor:help}
 .fund-agg{color:var(--muted);font-style:italic;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:6px 8px}
 tr.fund-panel-row td{background:var(--bg);padding:10px 14px 14px 44px;border-bottom:1px solid var(--line-soft)}
@@ -1032,7 +1033,9 @@ function renderTable(){
     const expBtn=el("button","expand-btn"+(expandedIds.has(a.id)?" open":"")); expBtn.type="button"; expBtn.textContent="▸";
     expBtn.title=`${a.funds.length} fundo${a.funds.length!==1?"s":""} nesta caixinha`;
     expBtn.addEventListener("click",()=>{ expandedIds.has(a.id)?expandedIds.delete(a.id):expandedIds.add(a.id); fullRender(); });
-    expTd.appendChild(expBtn); tr.appendChild(expTd);
+    expTd.appendChild(expBtn);
+    if(a.funds.length>=2){ const badge=el("span","expand-badge",String(a.funds.length)); badge.title=`${a.funds.length} fundos nesta caixinha`; expTd.appendChild(badge); }
+    tr.appendChild(expTd);
     // skip/exclude checkbox
     const skipTd=el("td","skip-col-th"); const skipCb=el("input","skip-cb"); skipCb.type="checkbox"; skipCb.checked=!!a.excluded; skipCb.title="Excluir do rebalanceamento"; skipCb.addEventListener("change",()=>{ a.excluded=skipCb.checked; markDirty(true); fullRender(); }); skipTd.appendChild(skipCb); tr.appendChild(skipTd);
     const nameTd=tdInput(a.id,"name","Nome/rótulo da caixinha",a.name,"name"); nameTd.dataset.col="name";
@@ -1040,9 +1043,14 @@ function renderTable(){
     tr.appendChild(nameTd);
     let _t;
     const single = a.funds.length===1 ? a.funds[0] : null;
+    const openFund = a.funds.find(f=>f.open) || null;
     if(single){
       _t=tdInput(single.id,"account","banco · liquidez",single.account,"",("acct"),null,"fund"); _t.dataset.col="account"; tr.appendChild(_t);
       _t=tdInput(single.id,"cnpj","00.000.000/0000-00",fmtCNPJ(single.cnpj),"",null,null,"fund"); _t.dataset.col="cnpj"; tr.appendChild(_t);
+    } else if(openFund){
+      // caixinha colapsada com 2+ fundos: mostra o fundo "aceita aporte" como principal
+      _t=el("td"); const acctPh=el("div","fund-agg",openFund.account||"—"); acctPh.title="Fundo aberto (aceita aporte) — expandir para ver todos os fundos"; acctPh.addEventListener("click",()=>{ expandedIds.add(a.id); fullRender(); }); _t.appendChild(acctPh); _t.dataset.col="account"; tr.appendChild(_t);
+      _t=el("td"); const cnpjPh=el("div","fund-agg",fmtCNPJ(openFund.cnpj)||"—"); cnpjPh.title="Fundo aberto (aceita aporte) — expandir para ver todos os fundos"; cnpjPh.addEventListener("click",()=>{ expandedIds.add(a.id); fullRender(); }); _t.appendChild(cnpjPh); _t.dataset.col="cnpj"; tr.appendChild(_t);
     } else {
       _t=el("td"); const acctPh=el("div","fund-agg",`${a.funds.length} fundos`); acctPh.title="Expandir para ver/editar os fundos"; acctPh.addEventListener("click",()=>{ expandedIds.add(a.id); fullRender(); }); _t.appendChild(acctPh); _t.dataset.col="account"; tr.appendChild(_t);
       _t=el("td"); const cnpjPh=el("div","fund-agg","—"); cnpjPh.title="Expandir para ver/editar os fundos"; cnpjPh.addEventListener("click",()=>{ expandedIds.add(a.id); fullRender(); }); _t.appendChild(cnpjPh); _t.dataset.col="cnpj"; tr.appendChild(_t);

@@ -83,7 +83,7 @@ input.txt:focus{border-color:var(--teal);box-shadow:0 0 0 3px #2dd4bf22}
 .tabs button.on{background:var(--surface-2);color:var(--ink)}
 
 /* ---------- App ---------- */
-.app{max-width:1280px;margin:0 auto;padding:18px clamp(12px,3vw,28px) 80px}
+.app{padding:18px clamp(12px,4vw,3cm) 80px}
 .topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
 .topbar .brand{margin:0;flex:1 1 auto}
 .sync{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
@@ -921,18 +921,33 @@ function loadColWidths(){
 let colWidths=loadColWidths();
 function saveColWidths(){ try{ localStorage.setItem("calclazy.colw",JSON.stringify(colWidths)); }catch(e){} }
 let colResizing=false;
-function applyColWidths(){
-  const tbl=document.querySelector(".tablewrap table");
-  if(!tbl) return;
-  tbl.style.tableLayout="fixed";
+// soma das larguras "base" (colWidths) das colunas visíveis + fator de escala
+// necessário para preencher a largura disponível do .tablewrap (>=1x, nunca encolhe)
+function colScaleAndTotal(){
   let total=124; // drag(26) + expand(24) + skip(32) + del(40) fixed
   document.querySelectorAll("thead th[data-col]").forEach(th=>{
     const id=th.dataset.col;
     if(!COL_WIDTHS_DEFAULT.hasOwnProperty(id)) return;
-    const w=colWidths[id]; th.style.width=w+"px";
-    if(id==="name"||visibleCols.has(id)) total+=w;
+    if(id==="name"||visibleCols.has(id)) total+=colWidths[id];
   });
-  tbl.style.width=Math.max(total,1040)+"px";
+  const minTotal=Math.max(total,1040);
+  const wrapEl=document.querySelector(".tablewrap");
+  const avail=wrapEl ? wrapEl.clientWidth : 0;
+  const scale=avail>minTotal ? avail/minTotal : 1;
+  return {scale, minTotal};
+}
+function applyColWidths(){
+  const tbl=document.querySelector(".tablewrap table");
+  if(!tbl) return;
+  tbl.style.tableLayout="fixed";
+  const {scale, minTotal}=colScaleAndTotal();
+  document.querySelectorAll("thead th[data-col]").forEach(th=>{
+    const id=th.dataset.col;
+    if(!COL_WIDTHS_DEFAULT.hasOwnProperty(id)) return;
+    const w=colWidths[id];
+    th.style.width=(id==="name"||visibleCols.has(id) ? Math.round(w*scale) : w)+"px";
+  });
+  tbl.style.width=Math.round(minTotal*scale)+"px";
 }
 function initColResize(){
   applyColWidths();
@@ -945,10 +960,14 @@ function initColResize(){
       e.preventDefault(); e.stopPropagation();
       colResizing=true;
       const x0=e.clientX, w0=th.offsetWidth;
+      // th.offsetWidth já está renderizado com a escala atual — precisamos
+      // converter de volta para a largura "base" (pré-escala) armazenada em colWidths
+      const s0=colScaleAndTotal().scale||1;
       h.classList.add("active");
       const onMove=ev=>{
-        const w=Math.max(50,w0+ev.clientX-x0);
-        th.style.width=w+"px"; colWidths[id]=w; applyColWidths();
+        const renderedW=Math.max(50,w0+ev.clientX-x0);
+        const baseW=Math.max(50,Math.round(renderedW/s0));
+        th.style.width=renderedW+"px"; colWidths[id]=baseW; applyColWidths();
       };
       const onUp=()=>{ colResizing=false; h.classList.remove("active"); saveColWidths(); document.removeEventListener("mousemove",onMove); document.removeEventListener("mouseup",onUp); };
       document.addEventListener("mousemove",onMove);
@@ -1860,6 +1879,7 @@ function gatePane(id){ ["gate-connecting","gate-unlock","gate-setup"].forEach(p=
 function enterApp(){ $("gate").classList.add("hide"); $("app").classList.remove("hide");
   $("flow").value = state.cashFlow ? fmtBRL(state.cashFlow) : "";
   fullRender(); session.unlocked=true; markDirty(false);
+  applyColWidths(); // recalcula agora que o container está visível com a largura real
 }
 
 /* UNLOCK */
@@ -2014,6 +2034,12 @@ $("skip-all-cb").addEventListener("change", e=>{
 });
 initColResize();
 initColDragHeaders();
+let _colWidthsResizeRAF=null;
+window.addEventListener("resize", ()=>{
+  if(colResizing) return;
+  if(_colWidthsResizeRAF) cancelAnimationFrame(_colWidthsResizeRAF);
+  _colWidthsResizeRAF=requestAnimationFrame(applyColWidths);
+});
 
 /* ============================================================
    TOAST

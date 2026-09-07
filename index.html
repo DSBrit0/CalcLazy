@@ -257,6 +257,12 @@ details.how[open] summary{color:var(--ink);border-bottom:1px solid var(--line-so
 .pie-chip.on{background:var(--teal);border-color:var(--teal);color:#0d1b22;font-weight:600}
 .pie-hint{text-align:center;padding:32px 20px;color:var(--muted);font-size:13px}
 .pie-wrap{display:flex;align-items:center;gap:24px;min-height:280px;width:100%;box-sizing:border-box;overflow:hidden}
+/* snapshot type modal */
+.snap-type-options{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
+.snap-type-opt{display:flex;flex-direction:column;gap:2px;text-align:left;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--line);background:var(--surface-2);color:var(--ink);cursor:pointer;font-family:inherit;transition:border-color .15s,background .15s}
+.snap-type-opt:hover{border-color:var(--teal);background:var(--surface-3)}
+.snap-type-opt strong{font-size:13.5px;font-weight:600}
+.snap-type-opt span{font-size:12px;color:var(--muted)}
 .pie-canvas-box{position:relative;flex:0 0 240px;height:240px}
 .pie-legend{flex:1;min-width:0;overflow:hidden}
 .pie-legend table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;min-width:0}
@@ -482,6 +488,27 @@ tr.fund-panel-row td{background:var(--bg);padding:10px 14px 14px 44px;border-bot
     <p id="hist-meta" class="hist-meta"></p>
     <div class="btn-row" style="margin-top:6px">
       <button id="hist-close" class="btn ghost">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- snapshot type modal -->
+<div id="snap-type-modal" class="modal-bg hide">
+  <div class="modal">
+    <h3>Registrar snapshot</h3>
+    <p>Selecione o que este snapshot representa.</p>
+    <div class="snap-type-options">
+      <button type="button" class="snap-type-opt" data-kind="rendimento">
+        <strong>Rendimento/Prejuízo do fundo</strong>
+        <span>Variação de valor sem entrada de novo dinheiro</span>
+      </button>
+      <button type="button" class="snap-type-opt" data-kind="aporte">
+        <strong>Aporte</strong>
+        <span>Novo dinheiro adicionado à carteira</span>
+      </button>
+    </div>
+    <div class="btn-row">
+      <button id="snap-type-cancel" class="btn ghost">Cancelar</button>
     </div>
   </div>
 </div>
@@ -1562,15 +1589,17 @@ $("btn-order").onclick=openOrderModal;
    HISTÓRICO / CHARTS
    ============================================================ */
 const HIST_PALETTE=['#2dd4bf','#f0a04b','#e5675f','#a78bfa','#34d399','#fb923c','#60a5fa','#f472b6','#a3e635','#facc15'];
+const SNAP_KIND_LABEL={ rendimento:"Rendimento/Prejuízo do fundo", aporte:"Aporte" };
 let _chartTotal=null, _chartAssets=null, _chartPie=null;
 let pieSelectedTags=new Set();
 
-function recordSnapshot(type){
+function recordSnapshot(type, kind){
   if(!state.history) state.history=[];
   const today=new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
   const total=state.assets.reduce((s,a)=>s+parseNum(a.current),0);
   const snap={ date: new Date().toISOString(), type, total,
     assets: state.assets.map(a=>({ name: a.name||"(sem nome)", value: parseNum(a.current) })) };
+  if(kind) snap.kind=kind;
   const idx=state.history.findIndex(h=>h.date.slice(0,10)===today);
   if(idx>=0) state.history[idx]=snap; else state.history.push(snap);
   markDirty(true);
@@ -1720,6 +1749,18 @@ function openHistModal(){
     });
 
     // Chart 1 — Patrimônio Total
+    const totalOpts=chartOpts();
+    totalOpts.plugins.tooltip.callbacks={
+      title:ctx=>fmtDateFull(hist[ctx[0].dataIndex].date),
+      label:ctx=>fmtBRL(ctx.raw),
+      afterLabel:ctx=>{
+        const i=ctx.dataIndex, h=hist[i];
+        const lines=[];
+        if(h.kind && SNAP_KIND_LABEL[h.kind]) lines.push(`Tipo: ${SNAP_KIND_LABEL[h.kind]}`);
+        if(i>0) lines.push(`Variação: ${fmtSignedBRL(h.total-hist[i-1].total)}`);
+        return lines;
+      }
+    };
     _chartTotal=new Chart($("chart-total").getContext("2d"),{
       type:"line",
       data:{
@@ -1732,7 +1773,7 @@ function openHistModal(){
           fill:true, tension:0.35, pointRadius:4, pointHoverRadius:6
         }]
       },
-      options:chartOpts()
+      options:totalOpts
     });
 
     // Chart 2 — Por ativo (inicializa mas não exibe ainda)
@@ -1791,9 +1832,21 @@ document.querySelectorAll(".hist-tab").forEach(tab=>{
   });
 });
 
+function openSnapTypeModal(){ $("snap-type-modal").classList.remove("hide"); }
+function closeSnapTypeModal(){ $("snap-type-modal").classList.add("hide"); }
+document.querySelectorAll(".snap-type-opt").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    const kind=btn.dataset.kind;
+    closeSnapTypeModal();
+    recordSnapshot("manual", kind);
+    toast("Snapshot registrado");
+  });
+});
+$("snap-type-cancel").onclick=closeSnapTypeModal;
+$("snap-type-modal").addEventListener("click", e=>{ if(e.target===$("snap-type-modal")) closeSnapTypeModal(); });
+
 $("btn-snapshot").onclick=()=>{
-  recordSnapshot("manual");
-  toast("Snapshot registrado");
+  openSnapTypeModal();
 };
 
 $("btn-apply").onclick=applyRebalance;

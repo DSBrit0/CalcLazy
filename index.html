@@ -1618,9 +1618,15 @@ function recordSnapshot(type, kind){
   const total=state.assets.reduce((s,a)=>s+parseNum(a.current),0);
   const snap={ date: new Date().toISOString(), type, total,
     assets: state.assets.map(a=>({ name: a.name||"(sem nome)", value: parseNum(a.current) })) };
-  if(kind) snap.kind=kind;
-  const idx=state.history.findIndex(h=>h.date.slice(0,10)===today);
-  if(idx>=0) state.history[idx]=snap; else state.history.push(snap);
+  if(kind){
+    // Snapshot tipado (aporte/rendimento) sempre gera um novo checkpoint
+    snap.kind=kind;
+    state.history.push(snap);
+  } else {
+    // Sem tipo: mantém um único checkpoint não tipado por dia
+    const idx=state.history.findIndex(h=>!h.kind && h.date.slice(0,10)===today);
+    if(idx>=0) state.history[idx]=snap; else state.history.push(snap);
+  }
   markDirty(true);
 }
 
@@ -1743,13 +1749,15 @@ function openHistModal(){
   $("hist-pane-tags").classList.toggle("hide",true);
   $("hist-empty").classList.toggle("hide",hasData);
   initPieTagChips();
-  $("hist-meta").textContent=hasData?`${hist.length} snapshot${hist.length!==1?"s":""} registrado${hist.length!==1?"s":""}. Último: ${fmtDateFull(hist[hist.length-1].date)} (${hist[hist.length-1].type==="apply"?"aporte/resgate":"manual"}).`:"";
+  $("hist-meta").textContent=hasData?`${hist.length} snapshot${hist.length!==1?"s":""} registrado${hist.length!==1?"s":""}. Último: ${fmtDateFull(hist[hist.length-1].date)} (${SNAP_KIND_LABEL[hist[hist.length-1].kind]||(hist[hist.length-1].type==="apply"?"aporte/resgate":"manual")}).`:"";
 
   // forçar aba total ativa
   document.querySelectorAll(".hist-tab").forEach(t=>t.classList.toggle("active",t.dataset.tab==="total"));
 
   if(hasData){
-    const labels=hist.map(h=>fmtDateLabel(h.date));
+    const dayCount={}; hist.forEach(h=>{ const d=fmtDateLabel(h.date); dayCount[d]=(dayCount[d]||0)+1; });
+    const labels=hist.map(h=>{ const d=fmtDateLabel(h.date); if(dayCount[d]<2) return d;
+      return `${d} ${new Date(h.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}`; });
     const chartOpts=(yFmt)=>({
       responsive:true, maintainAspectRatio:false,
       animation:{duration:300},
